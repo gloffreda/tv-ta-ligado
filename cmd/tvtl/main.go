@@ -25,6 +25,7 @@ import (
 	"github.com/gloffreda/tv-ta-ligado/internal/ingest"
 	"github.com/gloffreda/tv-ta-ligado/internal/llm"
 	"github.com/gloffreda/tv-ta-ligado/internal/pipeline"
+	"github.com/gloffreda/tv-ta-ligado/internal/report"
 	"github.com/gloffreda/tv-ta-ligado/internal/rundown"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
 )
@@ -108,7 +109,7 @@ func (a *app) ingester() (*ingest.Ingester, error) {
 		UA: a.env.UserAgent, Loc: a.env.Location, MaxAge: 48 * time.Hour}, nil
 }
 
-func dispatch(ctx context.Context, cmd string, args []string) error {
+func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 	fs := flag.NewFlagSet(cmd, flag.ExitOnError)
 	block := fs.String("block", "", "bloco (noticias|economia|humor)")
 	segment := fs.Int64("segment", 0, "id do segmento")
@@ -134,6 +135,29 @@ func dispatch(ctx context.Context, cmd string, args []string) error {
 	}
 	defer a.store.Close()
 
+	// Relatório em output/ ao fim de cada execução (exceto consultas).
+	started := time.Now()
+	if cmd != "show" && cmd != "stats" && cmd != "migrate" {
+		defer func() {
+			a.writeReport(report.Run{Command: cmd, Args: args, Started: started, Finished: time.Now(), Err: err})
+		}()
+	}
+	err = a.exec(ctx, cmd, *block, *segment, *last, *status)
+	return err
+}
+
+func (a *app) writeReport(r report.Run) {
+	now := r.Finished.In(a.env.Location)
+	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, a.env.Location)
+	path, err := report.Write(context.Background(), a.env.OutputDir, a.store, r, a.env.Location, day)
+	if err != nil {
+		slog.Warn("relatório não gravado", "erro", err)
+		return
+	}
+	slog.Info("relatório", "arquivo", path)
+}
+
+func (a *app) exec(ctx context.Context, cmd, blockName string, segment int64, last int, status string) error {
 	switch cmd {
 	case "migrate":
 		applied, err := a.store.Migrate(ctx)
@@ -149,21 +173,21 @@ func dispatch(ctx context.Context, cmd string, args []string) error {
 		r := in.RunOnce(ctx)
 		slog.Info("ingestão", "artigos_novos", r.Articles, "duplicados", r.Duplicates, "mercado", r.MarketFacts, "clima", r.WeatherFacts, "falhas", len(r.Failures))
 	case "rundown":
-		return a.showRundown(ctx, *block)
+		return a.showRundown(ctx, blockName)
 	case "write":
-		res, err := a.pipeline().Draft(ctx, *block)
+		res, err := a.pipeline().Draft(ctx, blockName)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("segmento %d: %s %s\n", res.SegmentID, res.Status, res.Reason)
 	case "check":
-		res, err := a.pipeline().CheckDraft(ctx, *segment)
+		res, err := a.pipeline().CheckDraft(ctx, segment)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("segmento %d: %s %s\n", res.SegmentID, res.Status, res.Reason)
 	case "generate":
-		res, err := a.pipeline().Generate(ctx, *block)
+		res, err := a.pipeline().Generate(ctx, blockName)
 		if err != nil {
 			return err
 		}
@@ -171,7 +195,7 @@ func dispatch(ctx context.Context, cmd string, args []string) error {
 	case "run":
 		return a.run(ctx)
 	case "show":
-		segs, err := a.store.Segments(ctx, *status, *last)
+		segs, err := a.store.Segments(ctx, status, last)
 		if err != nil {
 			return err
 		}
@@ -240,7 +264,14 @@ func (a *app) run(ctx context.Context) error {
 	genT := time.NewTicker(time.Minute)
 	defer genT.Stop()
 	p := a.pipeline()
-	a.generateDue(ctx, p)
+	cycle := func() {
+		start := time.Now()
+		if n := a.generateDue(ctx, p); n > 0 {
+			a.writeReport(report.Run{Command: "run-ciclo", Started: start, Finished: time.Now(),
+				Notes: []string{fmt.Sprintf("Ciclo do loop com %d segmento(s) gerado(s)", n)}})
+		}
+	}
+	cycle()
 	for {
 		select {
 		case <-ctx.Done():
@@ -249,34 +280,35 @@ func (a *app) run(ctx context.Context) error {
 		case <-ingestT.C:
 			doIngest()
 		case <-genT.C:
-			a.generateDue(ctx, p)
+			cycle()
 		}
 	}
 }
 
-// generateDue gera um segmento para cada bloco vencido segundo schedule.yaml.
-func (a *app) generateDue(ctx context.Context, p *pipeline.Pipeline) {
+// generateDue gera um segmento para cada bloco vencido segundo schedule.yaml
+// e devolve quantos segmentos foram tentados.
+func (a *app) generateDue(ctx context.Context, p *pipeline.Pipeline) (n int) {
 	if a.env.AnthropicAPIKey == "" {
-		return
+		return 0
 	}
 	if err := p.Guard(ctx); err != nil {
 		slog.Debug("geração suspensa", "motivo", err)
-		return
+		return 0
 	}
 	sched, err := config.LoadSchedule(a.env.ConfigDir)
 	if err != nil {
 		slog.Error("schedule.yaml", "erro", err)
-		return
+		return 0
 	}
 	now := time.Now()
 	for _, b := range sched.Blocks {
 		if ctx.Err() != nil {
-			return
+			return n
 		}
 		lastOK, okFound, err := a.store.LastSegmentAt(ctx, b.Name, "approved")
 		if err != nil {
 			slog.Error("agenda", "erro", err)
-			return
+			return n
 		}
 		if okFound && now.Sub(lastOK) < b.Every.Duration {
 			continue
@@ -287,10 +319,13 @@ func (a *app) generateDue(ctx context.Context, p *pipeline.Pipeline) {
 		}
 		start := time.Now()
 		res, err := p.Generate(ctx, b.Name)
+		if res.SegmentID != 0 {
+			n++
+		}
 		if err != nil {
 			if errors.Is(err, llm.ErrBudget) || errors.Is(err, pipeline.ErrBlackout) || errors.Is(err, pipeline.ErrGenerateOff) {
 				slog.Warn("geração parada", "motivo", err)
-				return
+				return n
 			}
 			slog.Error("geração falhou", "bloco", b.Name, "segmento", res.SegmentID, "erro", err)
 			continue
@@ -304,6 +339,7 @@ func (a *app) generateDue(ctx context.Context, p *pipeline.Pipeline) {
 		slog.Info("segmento", "bloco", b.Name, "id", res.SegmentID, "status", res.Status, "motivo", res.Reason,
 			"falas", len(res.Outcomes), "cortadas", dropped, "duracao", time.Since(start).Round(time.Second))
 	}
+	return n
 }
 
 func (a *app) stats(ctx context.Context) error {

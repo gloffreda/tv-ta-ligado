@@ -23,6 +23,14 @@ make logs                   # acompanha o loop
 make show N=5               # últimos 5 segmentos aprovados, com fontes
 ```
 
+Ao final de cada execução (`ingest`, `write`, `check`, `generate`, `rundown`, `run`) o
+`tvtl` grava um relatório em Markdown em `output/` (na raiz do projeto, fora do git):
+`output/relatorio-AAAAMMDD-HHMMSS-<comando>.md`, com cópia em `output/ultimo.md`.
+O relatório traz o que foi ingerido, os segmentos gerados (status, cortes,
+reescritas, custo), as falas cortadas e os motivos, o acumulado por bloco (taxa de
+corte e custo médio), o gasto do dia e os avisos. No `make run` (loop), sai um
+relatório `run-ciclo` a cada ciclo que gera segmentos e outro ao encerrar o loop.
+
 Outros alvos e subcomandos:
 
 | Comando | O que faz |
@@ -90,6 +98,8 @@ aplicados estão em [DECISIONS.md](DECISIONS.md).
 | `MEMORY_HALF_LIFE_DAYS` | `7` | meia-vida do peso das memórias |
 | `TVTL_TIMEZONE` | `America/Sao_Paulo` | fuso do orçamento e das datas |
 | `HTTP_USER_AGENT` | `tvtl/0.1 (…)` | user-agent da ingestão |
+| `TVTL_OUTPUT_DIR` | `output` (`/app/output` no container) | pasta dos relatórios |
+| `TVTL_UID` / `TVTL_GID` | `1000` | usuário do container `tvtl` (dono dos arquivos em `output/`) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `tvtl` | banco interno |
 | `TVTL_PG_PORT` | `55432` | porta local do perfil `debug` (só 127.0.0.1) |
 | `TVTL_PG_MEM` / `TVTL_PG_CPUS` | `512m` / `1` | limites do Postgres |

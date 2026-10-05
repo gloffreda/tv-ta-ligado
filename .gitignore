@@ -3,3 +3,4 @@
 /tvtl
 *.out
 coverage.*
+/output/

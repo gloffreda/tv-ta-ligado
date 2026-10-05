@@ -613,3 +613,59 @@ func (s *Store) Stats(ctx context.Context) ([]BlockStats, error) {
 	}
 	return out, rows.Err()
 }
+
+// SegmentsSince: todos os segmentos (qualquer status) criados desde t.
+func (s *Store) SegmentsSince(ctx context.Context, t time.Time) ([]SegmentView, error) {
+	rows, err := s.DB.Query(ctx, `SELECT id, block, status, attempts, cost_usd::float8, created_at, reject_reason FROM segments WHERE created_at >= $1 ORDER BY id`, t)
+	if err != nil {
+		return nil, err
+	}
+	var segs []SegmentView
+	for rows.Next() {
+		var v SegmentView
+		if err := rows.Scan(&v.ID, &v.Block, &v.Status, &v.Attempts, &v.CostUSD, &v.CreatedAt, &v.Reason); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		segs = append(segs, v)
+	}
+	rows.Close()
+	for i := range segs {
+		ls, err := s.LinesOf(ctx, segs[i].ID)
+		if err != nil {
+			return nil, err
+		}
+		segs[i].Lines = ls
+	}
+	return segs, nil
+}
+
+type EventView struct {
+	Kind      string
+	Detail    string
+	CreatedAt time.Time
+}
+
+// EventsSince: avisos operacionais desde t (exceto o registro rotineiro de extração).
+func (s *Store) EventsSince(ctx context.Context, t time.Time) ([]EventView, error) {
+	rows, err := s.DB.Query(ctx, `SELECT kind, detail::text, created_at FROM system_events WHERE created_at >= $1 AND kind <> 'facts_extracted' ORDER BY id`, t)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []EventView
+	for rows.Next() {
+		var e EventView
+		if err := rows.Scan(&e.Kind, &e.Detail, &e.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// IngestCounts: artigos e fatos criados desde t.
+func (s *Store) IngestCounts(ctx context.Context, t time.Time) (articles, facts int, err error) {
+	err = s.DB.QueryRow(ctx, `SELECT (SELECT count(*) FROM articles WHERE fetched_at >= $1), (SELECT count(*) FROM facts WHERE created_at >= $1)`, t).Scan(&articles, &facts)
+	return
+}

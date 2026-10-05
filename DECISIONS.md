@@ -188,3 +188,16 @@ recente) em 05/10/2026:
   calculado na consulta. O roteirista recebe as 10 de maior peso efetivo.
 - Uma memória é descartada se citar qualquer entidade do banco ou um nome próprio
   detectado pela heurística (exceto os avatares).
+
+## Relatório por execução
+
+- Pedido durante o sprint: um relatório na raiz, pasta `output/`, fora do git, ao
+  final de cada execução. Cada subcomando que muda o estado (`ingest`, `rundown`,
+  `write`, `check`, `generate`, `run`) grava `output/relatorio-<data>-<comando>.md` e
+  atualiza `output/ultimo.md`. Consultas (`show`, `stats`, `migrate`) não geram
+  relatório.
+- No loop (`run`), gravar um relatório por ingestão daria 288 arquivos por dia. Por
+  isso sai um `run-ciclo` por ciclo que gera segmentos, mais um ao encerrar o loop.
+- `./output` é um bind mount dentro do projeto. O container `tvtl` roda com o uid/gid
+  do dono do projeto (`TVTL_UID`/`TVTL_GID`, padrão 1000), para que os arquivos
+  fiquem graváveis e apagáveis no host.

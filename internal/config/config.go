@@ -26,6 +26,7 @@ type Env struct {
 	Location        *time.Location
 	MemoryHalfLife  float64 // dias
 	UserAgent       string
+	OutputDir       string
 }
 
 // Price em dólares por milhão de tokens.
@@ -77,6 +78,7 @@ func LoadEnv() (Env, error) {
 	if e.MemoryHalfLife, err = getFloat("MEMORY_HALF_LIFE_DAYS", 7); err != nil {
 		return e, err
 	}
+	e.OutputDir = get("TVTL_OUTPUT_DIR", "output")
 	e.UserAgent = get("HTTP_USER_AGENT", "tvtl/0.1 (+https://github.com/gloffreda/tv-ta-ligado)")
 	return e, nil
 }

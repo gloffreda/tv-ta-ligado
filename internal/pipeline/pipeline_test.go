@@ -17,6 +17,7 @@ import (
 	"github.com/gloffreda/tv-ta-ligado/internal/config"
 	"github.com/gloffreda/tv-ta-ligado/internal/facts"
 	"github.com/gloffreda/tv-ta-ligado/internal/llm"
+	"github.com/gloffreda/tv-ta-ligado/internal/report"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
 	"github.com/gloffreda/tv-ta-ligado/internal/testfix"
 )
@@ -237,6 +238,31 @@ func TestGenerateEndToEnd(t *testing.T) {
 	cands, _ := st.CandidateArticles(ctx, testfix.Now.Add(-36*time.Hour), testfix.Now.Add(-6*time.Hour), 10)
 	if len(cands) != 0 {
 		t.Fatalf("artigos já pautados não deveriam voltar: %d", len(cands))
+	}
+}
+
+func TestReportAfterRun(t *testing.T) {
+	st := testStore(t)
+	fx := seed(t, st)
+	p, _ := newPipeline(st, recorded(t, fx), testEnv(), testfix.Now)
+	started := time.Now().Add(-time.Second)
+	if _, err := p.Generate(context.Background(), "noticias"); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path, err := report.Write(context.Background(), dir, st, report.Run{Command: "generate", Args: []string{"--block", "noticias"}, Started: started, Finished: time.Now()}, testfix.Loc(), started.Add(-time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(path)
+	md := string(b)
+	for _, want := range []string{"tvtl generate --block noticias", "| noticias | approved |", "Falas cortadas no segmento", "inexistente", "Gasto com LLM hoje"} {
+		if !strings.Contains(md, want) {
+			t.Errorf("relatório sem %q:\n%s", want, md)
+		}
+	}
+	if _, err := os.Stat(dir + "/ultimo.md"); err != nil {
+		t.Fatal("ultimo.md deveria ser atualizado")
 	}
 }
 

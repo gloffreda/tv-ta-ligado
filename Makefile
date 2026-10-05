@@ -6,6 +6,7 @@ N       ?= 5
 .PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build
 
 build:
+	@mkdir -p output
 	$(COMPOSE) build tvtl
 
 ## up: sobe o Postgres, constrói a imagem e aplica as migrações (não inicia a geração)
