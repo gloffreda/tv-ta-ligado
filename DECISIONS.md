@@ -218,3 +218,24 @@ recente) em 05/10/2026:
 - `./output` é um bind mount dentro do projeto. O container `tvtl` roda com o uid/gid
   do dono do projeto (`TVTL_UID`/`TVTL_GID`, padrão 1000), para que os arquivos
   fiquem graváveis e apagáveis no host.
+
+## Chave, URLs e clima (rodada de 05/10/2026, noite)
+
+- **Chave de API:** o serviço `tvtl` lê o `.env` via `env_file`. Na inicialização, o
+  log mostra só `ANTHROPIC_API_KEY: presente` ou `ausente`, nunca o valor. Os
+  comandos que usam LLM (`ingest`, `run`, `rundown`, `write`, `check`, `generate`)
+  falham logo no início, antes de ingerir, se a chave estiver ausente. `migrate`,
+  `show`, `stats` e os testes não precisam dela. O `make run` recria o container
+  (`--force-recreate`) quando o `.env` é mais novo que `.make/env.stamp`.
+- **URLs finais:** `ingest.NormalizeURL` desfaz redirecionadores com a URL embutida
+  após `*` (Folha: `redir.folha.com.br/...*https://...`) e com parâmetro
+  `url=`/`u=`/`link=`/`target=`. Também remove parâmetros de rastreamento (`utm_*`,
+  `at_*`, que a BBC adiciona, `fbclid`, `gclid`…) e o fragmento. A migração 0003
+  corrigiu a base existente: 111 URLs da Folha e 19 da BBC, sem perder artigos.
+- **"Clima com 26 capitais":** não faltou capital. Às 19:04, a previsão de Campo
+  Grande era idêntica à das 18:32 (24,2 °C / 17,7 °C / 75%), mesma impressão digital.
+  O `UPSERT` então só renovou a validade da linha existente, e o relatório contava
+  apenas linhas *criadas*. As 27 capitais estavam válidas. Correção: a coluna
+  `facts.confirmed_at` (migração 0003) marca a reconfirmação, e o relatório passou
+  a mostrar novos + reconfirmados por `kind`. Uma capital sem dado de verdade
+  (campo nulo) agora vira aviso `source_failed`; antes ia só para o log.

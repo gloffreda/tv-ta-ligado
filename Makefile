@@ -27,9 +27,17 @@ test:
 migrate:
 	$(COMPOSE) run --rm tvtl migrate
 
-## run: inicia o loop (ingestão a cada 5 min + geração conforme schedule.yaml)
+## run: inicia o loop (ingestão a cada 5 min + geração conforme schedule.yaml).
+## Se o .env é novo ou mudou desde a última subida, o container é recriado.
 run: up
-	$(COMPOSE) up -d tvtl
+	@test -f .env || { echo "falta o .env (copie de .env.example)"; exit 1; }
+	@mkdir -p .make
+	@if [ ! -f .make/env.stamp ] || [ .env -nt .make/env.stamp ]; then \
+	  echo ".env novo ou alterado: recriando o container tvtl"; \
+	  $(COMPOSE) up -d --force-recreate tvtl && touch .make/env.stamp; \
+	else \
+	  $(COMPOSE) up -d tvtl; \
+	fi
 
 logs:
 	$(COMPOSE) logs -f --tail=200 tvtl

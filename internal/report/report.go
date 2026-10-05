@@ -65,9 +65,10 @@ func Build(ctx context.Context, st *store.Store, r Run, loc *time.Location, dayS
 		return "", err
 	}
 	f("\n## Ingestão nesta execução\n\n- Artigos novos: %d\n- Fatos novos: %d\n", arts, nfacts)
-	f("\n| kind | fatos novos |\n|---|---|\n")
+	f("\n| kind | fatos novos | reconfirmados (dado idêntico, validade renovada) | total válido desta rodada |\n|---|---|---|---|\n")
 	for _, k := range []string{"headline", "market", "weather"} {
-		f("| %s | %d |\n", k, byKind[k])
+		c := byKind[k]
+		f("| %s | %d | %d | %d |\n", k, c.New, c.Confirmed, c.New+c.Confirmed)
 	}
 
 	exArts, extracted, kept, failed, err := st.ExtractionStats(ctx, r.Started)

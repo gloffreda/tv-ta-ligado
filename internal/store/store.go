@@ -177,7 +177,7 @@ func (s *Store) UpsertFact(ctx context.Context, f facts.Fact) (int64, error) {
 	err := s.DB.QueryRow(ctx, `
 		INSERT INTO facts(article_id, kind, claim, entities, value, unit, as_of, source_name, source_url, series, expires_at, fingerprint)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12)
-		ON CONFLICT (fingerprint) DO UPDATE SET expires_at = GREATEST(facts.expires_at, EXCLUDED.expires_at)
+		ON CONFLICT (fingerprint) DO UPDATE SET expires_at = GREATEST(facts.expires_at, EXCLUDED.expires_at), confirmed_at = now()
 		RETURNING id`,
 		f.ArticleID, string(f.Kind), f.Claim, ents, f.Value, f.Unit, f.AsOf, f.SourceName, f.SourceURL, f.Series, f.ExpiresAt, f.Fingerprint()).Scan(&id)
 	return id, err
@@ -291,21 +291,27 @@ func (s *Store) ExtractionStats(ctx context.Context, t time.Time) (articles, ext
 	return
 }
 
-// FactsByKindSince: fatos novos por kind desde t.
-func (s *Store) FactsByKindSince(ctx context.Context, t time.Time) (map[string]int, error) {
-	rows, err := s.DB.Query(ctx, `SELECT kind, count(*) FROM facts WHERE created_at >= $1 GROUP BY kind`, t)
+// FactCount: fatos novos e reconfirmados (mesmo dado reingerido) de um kind.
+type FactCount struct{ New, Confirmed int }
+
+// FactsByKindSince: por kind, fatos criados desde t e fatos antigos reconfirmados desde t.
+func (s *Store) FactsByKindSince(ctx context.Context, t time.Time) (map[string]FactCount, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT kind, count(*) FILTER (WHERE created_at >= $1),
+		       count(*) FILTER (WHERE created_at < $1 AND confirmed_at >= $1)
+		FROM facts WHERE confirmed_at >= $1 GROUP BY kind`, t)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string]int{}
+	out := map[string]FactCount{}
 	for rows.Next() {
 		var k string
-		var n int
-		if err := rows.Scan(&k, &n); err != nil {
+		var c FactCount
+		if err := rows.Scan(&k, &c.New, &c.Confirmed); err != nil {
 			return nil, err
 		}
-		out[k] = n
+		out[k] = c
 	}
 	return out, rows.Err()
 }

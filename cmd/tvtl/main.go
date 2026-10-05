@@ -82,6 +82,9 @@ func newApp(ctx context.Context) (*app, error) {
 	var inner llm.Client = missingKey{}
 	if env.AnthropicAPIKey != "" {
 		inner = llm.NewAnthropic(env.AnthropicAPIKey)
+		slog.Info("ANTHROPIC_API_KEY: presente")
+	} else {
+		slog.Warn("ANTHROPIC_API_KEY: ausente")
 	}
 	m := &llm.Metered{Inner: inner, Prices: env.Prices, MaxDailyUSD: env.MaxDailyUSD, Ledger: st, Loc: env.Location}
 	return &app{env: env, store: st, metered: m}, nil
@@ -134,6 +137,14 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 		return err
 	}
 	defer a.store.Close()
+
+	// Comandos que usam LLM falham já no início, antes de ingerir, se não há chave.
+	switch cmd {
+	case "ingest", "run", "rundown", "write", "check", "generate":
+		if a.env.AnthropicAPIKey == "" {
+			return fmt.Errorf("ANTHROPIC_API_KEY ausente: defina a chave no .env (veja .env.example) e rode de novo; o comando %q não foi executado", cmd)
+		}
+	}
 
 	// Relatório em output/ ao fim de cada execução (exceto consultas).
 	started := time.Now()
@@ -257,9 +268,6 @@ func (a *app) run(ctx context.Context) error {
 	in, err := a.ingester()
 	if err != nil {
 		return err
-	}
-	if a.env.AnthropicAPIKey == "" {
-		slog.Warn("ANTHROPIC_API_KEY ausente: só a ingestão vai rodar")
 	}
 	slog.Info("tvtl run", "ingestao_a_cada", a.env.IngestInterval, "generate", a.env.Generate, "teto_usd_dia", a.env.MaxDailyUSD,
 		"model_fast", a.env.ModelFast, "model_smart", a.env.ModelSmart)
@@ -389,8 +397,12 @@ func printSegments(w io.Writer, segs []store.SegmentView, loc *time.Location) {
 				name = strings.ToUpper(l.Speaker)
 			}
 			fmt.Fprintf(w, "  %02d %-8s [%s] %s\n", l.Seq, name, tag, l.Text)
+			seen := map[string]bool{} // vários fatos do mesmo artigo: uma linha de fonte
 			for _, f := range l.Sources {
-				fmt.Fprintf(w, "        ↳ fonte: %s — %s\n", f.SourceName, f.SourceURL)
+				if !seen[f.SourceURL] {
+					seen[f.SourceURL] = true
+					fmt.Fprintf(w, "        ↳ fonte: %s — %s\n", f.SourceName, f.SourceURL)
+				}
 			}
 		}
 		if len(dropped) > 0 {

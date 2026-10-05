@@ -257,7 +257,7 @@ func TestReportAfterRun(t *testing.T) {
 	b, _ := os.ReadFile(path)
 	md := string(b)
 	for _, want := range []string{"tvtl generate --block noticias", "| noticias | approved |", "Falas cortadas no segmento", "inexistente", "Gasto com LLM hoje",
-		"| headline | 7 |", "Fatos extraídos pelo LLM: 7 · aceitos pela validação literal: 6 · descartados: 1 (taxa de descarte 14.3%)"} {
+		"| headline | 7 | 0 | 7 |", "Fatos extraídos pelo LLM: 7 · aceitos pela validação literal: 6 · descartados: 1 (taxa de descarte 14.3%)"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("relatório sem %q:\n%s", want, md)
 		}

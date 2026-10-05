@@ -35,7 +35,7 @@ type Report struct {
 	Articles     int
 	Duplicates   int
 	MarketFacts  int
-	WeatherFacts int
+	WeatherFacts int // capitais com previsão gravada (nova ou reconfirmada)
 	Failures     []string
 }
 
@@ -138,7 +138,7 @@ func ParseItems(feed *gofeed.Feed, f config.RSSFeed) []store.Article {
 	var out []store.Article
 	for _, it := range feed.Items {
 		title := strings.TrimSpace(textutil.StripHTML(it.Title))
-		link := strings.TrimSpace(it.Link)
+		link := NormalizeURL(it.Link)
 		if title == "" || link == "" {
 			continue
 		}
@@ -312,6 +312,7 @@ func (in *Ingester) weather(ctx context.Context) (int, error) {
 		f, err := WeatherFact(c, res[i], w, in.now(), in.Loc)
 		if err != nil {
 			slog.Warn("clima sem dado", "cidade", c.City, "erro", err)
+			_ = in.Store.Event(ctx, "source_failed", map[string]string{"source": w.SourceName + " — " + c.City, "error": err.Error()})
 			continue
 		}
 		if _, err := in.Store.UpsertFact(ctx, f); err != nil {

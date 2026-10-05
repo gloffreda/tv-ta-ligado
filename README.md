@@ -133,4 +133,23 @@ Cobertura principal:
 ## Custo medido
 
 <!-- COST-TABLE -->
-_Pendente: a medição exige uma rodada de `make run` com a API real._
+Medição real em 05/10/2026, num `tvtl run` de 20 minutos (19:16–19:36, horário de
+Brasília), com `MODEL_FAST=claude-haiku-4-5-20251001`, `MODEL_SMART=claude-sonnet-5-5`
+e os preços padrão do `.env.example`:
+
+| bloco | falas | cortadas | taxa de corte | reescritas aprovadas | custo do segmento (US$) |
+|---|---|---|---|---|---|
+| noticias | 14 | 1 | 7,1% | 2 | 0,0625 |
+| economia | 15 | 3 | 20,0% | 0 | 0,0520 |
+| humor | 14 | 4 | 28,6% | 0 | 0,0589 |
+| **média** | | | **18,6%** | | **0,0578** |
+
+- O custo por segmento inclui pauta, roteiro, juiz (uma chamada por fala), reescritas e
+  memória. Cerca de 40% vai para o juiz.
+- A extração de fatos é cobrada à parte, na ingestão: cerca de US$ 0,0015 por artigo
+  (Haiku), ou seja, até ~US$ 0,06 por ciclo de 40 artigos. Nessa execução, 160
+  artigos geraram 329 fatos propostos, dos quais 326 foram aceitos (0,9% de descarte
+  na validação literal).
+- Gasto total do dia de teste, com ingestões e extrações: US$ 0,46.
+- A amostra é de 1 segmento por bloco (a grade pede `noticias` a cada 20 min e os
+  outros a cada 30), então trate esses números como ordem de grandeza.
