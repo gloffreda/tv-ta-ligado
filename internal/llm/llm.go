@@ -35,6 +35,9 @@ type Client interface {
 	Complete(ctx context.Context, req Request) (Response, error)
 }
 
+// ErrNoAPIKey: não há credencial; nenhuma chamada é possível.
+var ErrNoAPIKey = errors.New("ANTHROPIC_API_KEY ausente")
+
 // ErrRefused: o modelo recusou responder (tratado como reprovação).
 var ErrRefused = errors.New("modelo recusou a solicitação")
 
@@ -100,5 +103,5 @@ func (sc *Schema) Decode(text string, out any) error {
 // Fatal: erros que devem interromper a geração inteira (teto de orçamento,
 // contexto cancelado), em vez de só reprovar uma fala.
 func Fatal(err error) bool {
-	return errors.Is(err, ErrBudget) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	return errors.Is(err, ErrBudget) || errors.Is(err, ErrNoAPIKey) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

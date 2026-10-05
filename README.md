@@ -25,11 +25,12 @@ make show N=5               # últimos 5 segmentos aprovados, com fontes
 
 Ao final de cada execução (`ingest`, `write`, `check`, `generate`, `rundown`, `run`) o
 `tvtl` grava um relatório em Markdown em `output/` (na raiz do projeto, fora do git):
-`output/relatorio-AAAAMMDD-HHMMSS-<comando>.md`, com cópia em `output/ultimo.md`.
-O relatório traz o que foi ingerido, os segmentos gerados (status, cortes,
-reescritas, custo), as falas cortadas e os motivos, o acumulado por bloco (taxa de
-corte e custo médio), o gasto do dia e os avisos. No `make run` (loop), sai um
-relatório `run-ciclo` a cada ciclo que gera segmentos e outro ao encerrar o loop.
+`output/relatorio-AAAAMMDD-HHMMSS-<comando>.md` (um arquivo por execução; no
+`run`, ao encerrar o loop). O relatório traz o que foi ingerido, os fatos novos por
+`kind`, a taxa de descarte da validação literal (fatos propostos pelo LLM × aceitos),
+os segmentos gerados (status, cortes, reescritas, custo), as falas cortadas e os
+motivos, o acumulado por bloco (taxa de corte e custo médio), o gasto do dia e os
+avisos (inclusive erros de LLM na extração).
 
 Outros alvos e subcomandos:
 
@@ -38,7 +39,7 @@ Outros alvos e subcomandos:
 | `make down` | derruba só o projeto `tvtl` (volumes preservados) |
 | `make clean` | apaga containers **e volumes** do projeto (pede confirmação) |
 | `make migrate` | aplica migrações |
-| `make ingest` | uma rodada de ingestão |
+| `make ingest` | uma rodada de ingestão + extração de fatos dos artigos pendentes |
 | `make debug-up` / `make debug-down` | expõe o Postgres em `127.0.0.1:${TVTL_PG_PORT:-55432}` |
 | `docker compose -p tvtl run --rm tvtl feeds-check` | valida as URLs de `config/feeds.yaml` |
 | `… tvtl rundown --block noticias` | mostra a pauta que seria montada |
@@ -53,8 +54,10 @@ Outros alvos e subcomandos:
 ```
 RSS / BCB / Open-Meteo ──► articles, facts (mercado, clima)
                 │
-   pauta (MODEL_FAST) ──► artigos escolhidos ──► extração de fatos (MODEL_FAST)
-                │                                  + validação por código
+   extração de fatos (MODEL_FAST), até 40 artigos por ciclo, mais recentes primeiro
+   + validação literal por código  (roda com GENERATE=off; pausa no bloqueio; respeita o teto)
+                │
+   pauta (MODEL_FAST) ──► artigos escolhidos e seus fatos
                 ▼
    roteiro (MODEL_SMART, JSON estrito validado por schema; 1 nova tentativa)
                 │

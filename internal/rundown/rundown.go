@@ -24,6 +24,7 @@ type Plan struct {
 	Articles []store.Article // em ordem de importância
 	Weather  []facts.Fact
 	Market   []facts.Fact
+	Warnings []string // problemas não fatais (registrados pelo chamador)
 }
 
 var selectSchema = llm.MustSchema("rundown.json", `{
@@ -106,6 +107,7 @@ func (p *Planner) Plan(ctx context.Context, b config.Block, cands []store.Articl
 			return plan, err
 		}
 		slog.Warn("pauta por LLM falhou; usando as mais recentes", "bloco", b.Name, "erro", err)
+		plan.Warnings = append(plan.Warnings, "pauta por LLM falhou; usando as mais recentes: "+err.Error())
 	}
 	byID := map[int64]store.Article{}
 	for _, a := range cands {

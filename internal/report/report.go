@@ -22,7 +22,7 @@ type Run struct {
 	Notes    []string
 }
 
-// Write gera output/relatorio-AAAAMMDD-HHMMSS-<comando>.md e atualiza output/ultimo.md.
+// Write gera um único arquivo por execução: output/relatorio-AAAAMMDD-HHMMSS-<comando>.md.
 func Write(ctx context.Context, dir string, st *store.Store, r Run, loc *time.Location, dayStart time.Time) (string, error) {
 	md, err := Build(ctx, st, r, loc, dayStart)
 	if err != nil {
@@ -36,7 +36,6 @@ func Write(ctx context.Context, dir string, st *store.Store, r Run, loc *time.Lo
 	if err := os.WriteFile(path, []byte(md), 0o644); err != nil {
 		return "", err
 	}
-	_ = os.WriteFile(filepath.Join(dir, "ultimo.md"), []byte(md), 0o644)
 	return path, nil
 }
 
@@ -61,7 +60,28 @@ func Build(ctx context.Context, st *store.Store, r Run, loc *time.Location, dayS
 	if err != nil {
 		return "", err
 	}
+	byKind, err := st.FactsByKindSince(ctx, r.Started)
+	if err != nil {
+		return "", err
+	}
 	f("\n## Ingestão nesta execução\n\n- Artigos novos: %d\n- Fatos novos: %d\n", arts, nfacts)
+	f("\n| kind | fatos novos |\n|---|---|\n")
+	for _, k := range []string{"headline", "market", "weather"} {
+		f("| %s | %d |\n", k, byKind[k])
+	}
+
+	exArts, extracted, kept, failed, err := st.ExtractionStats(ctx, r.Started)
+	if err != nil {
+		return "", err
+	}
+	f("\n### Extração de fatos de artigos\n\n")
+	f("- Artigos processados: %d · com erro de LLM: %d\n", exArts, failed)
+	if extracted > 0 {
+		f("- Fatos extraídos pelo LLM: %d · aceitos pela validação literal: %d · descartados: %d (taxa de descarte %.1f%%)\n",
+			extracted, kept, extracted-kept, 100*float64(extracted-kept)/float64(extracted))
+	} else {
+		f("- Fatos extraídos pelo LLM: 0 (taxa de descarte não se aplica)\n")
+	}
 
 	segs, err := st.SegmentsSince(ctx, r.Started)
 	if err != nil {

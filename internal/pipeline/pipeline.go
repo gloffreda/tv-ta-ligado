@@ -138,6 +138,9 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 	if err != nil {
 		return reject(0, "pauta: "+err.Error(), fatalOrNil(err))
 	}
+	for _, w := range plan.Warnings {
+		_ = p.Store.Event(ctx, "rundown_fallback", map[string]any{"segment_id": segID, "block": blockName, "warning": w})
+	}
 
 	// 2. Fatos dos artigos escolhidos (extração sob demanda, uma vez por artigo).
 	extractor := &facts.Extractor{LLM: p.LLM, Model: p.Env.ModelFast, Now: p.Now}
@@ -150,8 +153,7 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 			if llm.Fatal(err) {
 				return reject(0, err.Error(), err)
 			}
-			slog.Warn("extração falhou", "artigo", a.ID, "erro", err)
-			continue
+			continue // já registrado em system_events (extract_failed)
 		}
 		if len(fs) == 0 {
 			continue
@@ -269,35 +271,6 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 		p.remember(ctx, segID, outs, personas, sched.Check.NameExceptions)
 	}
 	return res, nil
-}
-
-func (p *Pipeline) articleFacts(ctx context.Context, ex *facts.Extractor, a store.Article, now time.Time) ([]facts.Fact, error) {
-	done, err := p.Store.HasExtracted(ctx, a.ID)
-	if err != nil {
-		return nil, err
-	}
-	if !done {
-		src := facts.Source{ArticleID: a.ID, Title: a.Title, Summary: a.Summary, URL: a.URL, Credit: a.SourceName}
-		if a.Body != nil {
-			src.Body = *a.Body
-		}
-		if a.PublishedAt != nil {
-			src.PublishedAt = *a.PublishedAt
-		} else {
-			src.PublishedAt = a.FetchedAt
-		}
-		kept, discarded, err := ex.Extract(ctx, src)
-		if err != nil {
-			return nil, err
-		}
-		for _, f := range kept {
-			if _, err := p.Store.UpsertFact(ctx, f); err != nil {
-				return nil, err
-			}
-		}
-		_ = p.Store.Event(ctx, "facts_extracted", map[string]any{"article_id": a.ID, "kept": len(kept), "discarded": discarded})
-	}
-	return p.Store.FactsForArticle(ctx, a.ID, now)
 }
 
 func (p *Pipeline) check(ctx context.Context, block config.Block, sched config.Schedule, segFacts []facts.Fact, lines []check.Line, now time.Time) ([]check.Outcome, error) {

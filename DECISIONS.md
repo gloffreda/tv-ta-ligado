@@ -99,9 +99,23 @@ recente) em 05/10/2026:
 
 ## Fatos
 
-- **Extração sob demanda:** o LLM extrai fatos só dos artigos escolhidos para a pauta,
-  uma vez por artigo, e não de todos os ~350 artigos ingeridos a cada 5 minutos.
-  Isso corta custo sem mudar a regra.
+- **Extração na ingestão (corrigido depois da 1ª entrega):** na versão inicial, a
+  extração só rodava dentro da geração (`Draft`) e só para os artigos da pauta. Com
+  isso, `tvtl ingest` não produzia nenhum fato de manchete: 351 artigos e 0 fatos
+  `headline`. Agora cada rodada de ingestão extrai fatos de até **40 artigos
+  pendentes por ciclo**, do mais recente para o mais antigo, publicados nas últimas
+  48 h (a validade de uma manchete). A coluna `articles.facts_extracted_at`
+  (migração 0002) marca o que já foi processado.
+- **A extração não é geração de conteúdo:** roda mesmo com `GENERATE=off`. Fica
+  **pausada dentro das janelas de bloqueio eleitoral** ("rodar fora das janelas") e
+  respeita `MAX_DAILY_USD` (cada chamada passa pelo teto). Bloqueio e teto registram
+  aviso em `system_events`.
+- **Erros de LLM na extração nunca são engolidos:** cada falha vira um evento
+  `extract_failed` (com artigo, URL e erro), que aparece em "Avisos" no relatório. O
+  artigo continua pendente e é tentado de novo no ciclo seguinte. Erros fatais
+  (chave ausente, teto atingido, cancelamento) param o ciclo na primeira falha, para
+  não gerar 40 avisos iguais. A queda da pauta para "as mais recentes" também virou
+  evento (`rundown_fallback`).
 - A validação por código (`facts.Validate`) exige que cada número do fato apareça
   **literalmente** na fonte (mesmo valor e mesma precisão; "3%" não vale se a fonte
   diz "3,2%"), que `value` exista entre os números da fonte e que cada entidade
@@ -193,11 +207,14 @@ recente) em 05/10/2026:
 
 - Pedido durante o sprint: um relatório na raiz, pasta `output/`, fora do git, ao
   final de cada execução. Cada subcomando que muda o estado (`ingest`, `rundown`,
-  `write`, `check`, `generate`, `run`) grava `output/relatorio-<data>-<comando>.md` e
-  atualiza `output/ultimo.md`. Consultas (`show`, `stats`, `migrate`) não geram
-  relatório.
-- No loop (`run`), gravar um relatório por ingestão daria 288 arquivos por dia. Por
-  isso sai um `run-ciclo` por ciclo que gera segmentos, mais um ao encerrar o loop.
+  `write`, `check`, `generate`, `run`) grava **um único** arquivo,
+  `output/relatorio-<data>-<comando>.md`. Consultas (`show`, `stats`, `migrate`) não
+  geram relatório.
+- A primeira versão gravava cada relatório duas vezes (o arquivo datado mais uma
+  cópia em `output/ultimo.md`), e o `run` ainda gravava um `run-ciclo` por ciclo além
+  do final. Agora é um arquivo por execução; no `run`, ele sai ao encerrar o loop.
+- O relatório traz fatos novos por `kind` e a taxa de descarte da validação literal
+  (fatos propostos pelo LLM × aceitos), calculada a partir dos eventos `facts_extracted`.
 - `./output` é um bind mount dentro do projeto. O container `tvtl` roda com o uid/gid
   do dono do projeto (`TVTL_UID`/`TVTL_GID`, padrão 1000), para que os arquivos
   fiquem graváveis e apagáveis no host.

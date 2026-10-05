@@ -90,7 +90,7 @@ func newApp(ctx context.Context) (*app, error) {
 type missingKey struct{}
 
 func (missingKey) Complete(context.Context, llm.Request) (llm.Response, error) {
-	return llm.Response{}, errors.New("ANTHROPIC_API_KEY ausente: geração desativada")
+	return llm.Response{}, llm.ErrNoAPIKey
 }
 
 func (a *app) pipeline() *pipeline.Pipeline {
@@ -170,8 +170,7 @@ func (a *app) exec(ctx context.Context, cmd, blockName string, segment int64, la
 		if err != nil {
 			return err
 		}
-		r := in.RunOnce(ctx)
-		slog.Info("ingestão", "artigos_novos", r.Articles, "duplicados", r.Duplicates, "mercado", r.MarketFacts, "clima", r.WeatherFacts, "falhas", len(r.Failures))
+		a.ingestAndExtract(ctx, in, a.pipeline())
 	case "rundown":
 		return a.showRundown(ctx, blockName)
 	case "write":
@@ -239,6 +238,17 @@ func (a *app) showRundown(ctx context.Context, blockName string) error {
 	return nil
 }
 
+// ingestAndExtract: uma rodada de ingestão seguida da extração de fatos dos
+// artigos pendentes (até 40, mais recentes primeiro).
+func (a *app) ingestAndExtract(ctx context.Context, in *ingest.Ingester, p *pipeline.Pipeline) {
+	r := in.RunOnce(ctx)
+	slog.Info("ingestão", "artigos_novos", r.Articles, "duplicados", r.Duplicates, "mercado", r.MarketFacts, "clima", r.WeatherFacts, "falhas", len(r.Failures))
+	if _, err := p.ExtractPending(ctx, pipeline.ExtractLimit); err != nil {
+		slog.Error("extração", "erro", err)
+		_ = a.store.Event(context.WithoutCancel(ctx), "extract_failed", map[string]string{"error": err.Error()})
+	}
+}
+
 // run é o loop principal.
 func (a *app) run(ctx context.Context) error {
 	if _, err := a.store.Migrate(ctx); err != nil {
@@ -254,23 +264,15 @@ func (a *app) run(ctx context.Context) error {
 	slog.Info("tvtl run", "ingestao_a_cada", a.env.IngestInterval, "generate", a.env.Generate, "teto_usd_dia", a.env.MaxDailyUSD,
 		"model_fast", a.env.ModelFast, "model_smart", a.env.ModelSmart)
 
-	doIngest := func() {
-		r := in.RunOnce(ctx)
-		slog.Info("ingestão", "artigos_novos", r.Articles, "duplicados", r.Duplicates, "mercado", r.MarketFacts, "clima", r.WeatherFacts, "falhas", len(r.Failures))
-	}
+	p := a.pipeline()
+	doIngest := func() { a.ingestAndExtract(ctx, in, p) }
 	doIngest()
 	ingestT := time.NewTicker(a.env.IngestInterval)
 	defer ingestT.Stop()
 	genT := time.NewTicker(time.Minute)
 	defer genT.Stop()
-	p := a.pipeline()
-	cycle := func() {
-		start := time.Now()
-		if n := a.generateDue(ctx, p); n > 0 {
-			a.writeReport(report.Run{Command: "run-ciclo", Started: start, Finished: time.Now(),
-				Notes: []string{fmt.Sprintf("Ciclo do loop com %d segmento(s) gerado(s)", n)}})
-		}
-	}
+	// Um relatório por execução: o do `run` é gravado ao encerrar o loop.
+	cycle := func() { a.generateDue(ctx, p) }
 	cycle()
 	for {
 		select {

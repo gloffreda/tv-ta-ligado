@@ -256,13 +256,102 @@ func TestReportAfterRun(t *testing.T) {
 	}
 	b, _ := os.ReadFile(path)
 	md := string(b)
-	for _, want := range []string{"tvtl generate --block noticias", "| noticias | approved |", "Falas cortadas no segmento", "inexistente", "Gasto com LLM hoje"} {
+	for _, want := range []string{"tvtl generate --block noticias", "| noticias | approved |", "Falas cortadas no segmento", "inexistente", "Gasto com LLM hoje",
+		"| headline | 7 |", "Fatos extraídos pelo LLM: 7 · aceitos pela validação literal: 6 · descartados: 1 (taxa de descarte 14.3%)"} {
 		if !strings.Contains(md, want) {
 			t.Errorf("relatório sem %q:\n%s", want, md)
 		}
 	}
-	if _, err := os.Stat(dir + "/ultimo.md"); err != nil {
-		t.Fatal("ultimo.md deveria ser atualizado")
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("um único arquivo por execução, veio %d", len(entries))
+	}
+}
+
+func TestExtractPendingIgnoresGenerateOff(t *testing.T) {
+	st := testStore(t)
+	fx := seed(t, st)
+	mock := recorded(t, fx)
+	env := testEnv()
+	env.Generate = false
+	p, _ := newPipeline(st, mock, env, testfix.Now)
+	r, err := p.ExtractPending(context.Background(), ExtractLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Articles != 2 || r.Extracted != 7 || r.Kept != 6 || mock.CallsFor("extract") != 2 {
+		t.Fatalf("relatório=%+v chamadas=%d", r, mock.CallsFor("extract"))
+	}
+	// Segunda rodada não reprocessa.
+	if r2, _ := p.ExtractPending(context.Background(), ExtractLimit); r2.Articles != 0 || mock.CallsFor("extract") != 2 {
+		t.Fatalf("artigos já processados não podem ser reextraídos: %+v", r2)
+	}
+}
+
+func TestExtractPendingLimitAndOrder(t *testing.T) {
+	st := testStore(t)
+	ctx := context.Background()
+	src, _ := st.UpsertSource(ctx, "Agência Fictícia", "rss", "https://exemplo.invalid/rss", "cc-by")
+	for i := 0; i < 45; i++ {
+		pub := testfix.Now.Add(-time.Duration(i) * time.Minute)
+		_, _ = st.InsertArticle(ctx, store.Article{SourceID: src, URL: fmt.Sprintf("https://exemplo.invalid/n%d", i), Title: fmt.Sprintf("Notícia %d", i), TitleHash: fmt.Sprint(i), Summary: "Texto sem números.", PublishedAt: &pub})
+	}
+	mock := llm.NewMock(nil)
+	var order []string
+	mock.Handler = func(r llm.Request) (string, error) {
+		order = append(order, r.Prompt)
+		return `{"facts":[]}`, nil
+	}
+	p, _ := newPipeline(st, mock, testEnv(), testfix.Now)
+	r, _ := p.ExtractPending(ctx, ExtractLimit)
+	if r.Articles != 40 || len(order) != 40 {
+		t.Fatalf("limite de 40 por ciclo: %+v", r)
+	}
+	if !strings.Contains(order[0], "Notícia 0\n") || !strings.Contains(order[39], "Notícia 39\n") {
+		t.Fatal("mais recentes primeiro")
+	}
+}
+
+func TestExtractPendingErrorsAreReported(t *testing.T) {
+	st := testStore(t)
+	fx := seed(t, st)
+	_ = fx
+	mock := llm.NewMock(nil)
+	mock.Handler = func(r llm.Request) (string, error) { return "", llm.ErrNoAPIKey }
+	p, _ := newPipeline(st, mock, testEnv(), testfix.Now)
+	started := time.Now().Add(-time.Second)
+	r, err := p.ExtractPending(context.Background(), ExtractLimit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Failed != 1 || r.Stopped == "" {
+		t.Fatalf("chave ausente deve parar o ciclo na 1ª falha: %+v", r)
+	}
+	md, _ := report.Build(context.Background(), st, report.Run{Command: "ingest", Started: started, Finished: time.Now()}, testfix.Loc(), started)
+	if !strings.Contains(md, "extract_failed") || !strings.Contains(md, "ANTHROPIC_API_KEY ausente") {
+		t.Fatalf("erro de LLM deve aparecer nos Avisos:\n%s", md)
+	}
+	var pending int
+	_ = st.DB.QueryRow(context.Background(), `SELECT count(*) FROM articles WHERE facts_extracted_at IS NULL`).Scan(&pending)
+	if pending != 2 {
+		t.Fatal("artigo com falha deve continuar pendente para a próxima rodada")
+	}
+}
+
+func TestExtractPendingBlackoutAndBudget(t *testing.T) {
+	st := testStore(t)
+	fx := seed(t, st)
+	mock := recorded(t, fx)
+	inside := time.Date(2026, 10, 25, 12, 0, 0, 0, testfix.Loc())
+	p, _ := newPipeline(st, mock, testEnv(), inside)
+	if r, _ := p.ExtractPending(context.Background(), ExtractLimit); r.Stopped == "" || len(mock.Calls) != 0 {
+		t.Fatalf("bloqueio eleitoral pausa a extração: %+v", r)
+	}
+	env := testEnv()
+	env.MaxDailyUSD = 0.001 // cada chamada custa US$ 0,002
+	p2, _ := newPipeline(st, mock, env, testfix.Now)
+	r, _ := p2.ExtractPending(context.Background(), ExtractLimit)
+	if len(mock.Calls) != 1 || !strings.Contains(r.Stopped, "teto") {
+		t.Fatalf("teto diário para a extração: %+v chamadas=%d", r, len(mock.Calls))
 	}
 }
 

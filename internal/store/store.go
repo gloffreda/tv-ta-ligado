@@ -246,8 +246,68 @@ func (s *Store) FactsForArticle(ctx context.Context, articleID int64, now time.T
 // HasExtracted: o artigo já passou pela extração (mesmo que sem fatos válidos).
 func (s *Store) HasExtracted(ctx context.Context, articleID int64) (bool, error) {
 	var ok bool
-	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM system_events WHERE kind='facts_extracted' AND (detail->>'article_id')::bigint=$1)`, articleID).Scan(&ok)
+	err := s.DB.QueryRow(ctx, `SELECT facts_extracted_at IS NOT NULL FROM articles WHERE id=$1`, articleID).Scan(&ok)
 	return ok, err
+}
+
+// MarkExtracted registra que o artigo foi processado (com ou sem fatos aceitos).
+func (s *Store) MarkExtracted(ctx context.Context, articleID int64) error {
+	_, err := s.DB.Exec(ctx, `UPDATE articles SET facts_extracted_at=now() WHERE id=$1`, articleID)
+	return err
+}
+
+// PendingExtraction: artigos ainda não processados, publicados desde since,
+// do mais recente para o mais antigo.
+func (s *Store) PendingExtraction(ctx context.Context, since time.Time, limit int) ([]Article, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT `+articleCols+`
+		FROM articles a JOIN sources src ON src.id = a.source_id
+		WHERE a.facts_extracted_at IS NULL AND COALESCE(a.published_at, a.fetched_at) >= $1
+		ORDER BY COALESCE(a.published_at, a.fetched_at) DESC, a.id DESC
+		LIMIT $2`, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Article
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// ExtractionStats: fatos propostos pelo LLM e aceitos pela validação literal desde t.
+func (s *Store) ExtractionStats(ctx context.Context, t time.Time) (articles, extracted, kept, failed int, err error) {
+	err = s.DB.QueryRow(ctx, `
+		SELECT count(*) FILTER (WHERE kind='facts_extracted'),
+		       COALESCE(sum((detail->>'extracted')::int) FILTER (WHERE kind='facts_extracted'),0),
+		       COALESCE(sum((detail->>'kept')::int) FILTER (WHERE kind='facts_extracted'),0),
+		       count(*) FILTER (WHERE kind='extract_failed')
+		FROM system_events WHERE created_at >= $1`, t).Scan(&articles, &extracted, &kept, &failed)
+	return
+}
+
+// FactsByKindSince: fatos novos por kind desde t.
+func (s *Store) FactsByKindSince(ctx context.Context, t time.Time) (map[string]int, error) {
+	rows, err := s.DB.Query(ctx, `SELECT kind, count(*) FROM facts WHERE created_at >= $1 GROUP BY kind`, t)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var k string
+		var n int
+		if err := rows.Scan(&k, &n); err != nil {
+			return nil, err
+		}
+		out[k] = n
+	}
+	return out, rows.Err()
 }
 
 // LatestFactsByKind: o fato válido mais recente de cada série.
