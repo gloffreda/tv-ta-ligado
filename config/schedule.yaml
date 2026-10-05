@@ -1,0 +1,69 @@
+# Grade do MVP. Um bloco é gerado quando o último segmento aprovado dele
+# ficou mais velho que `every`. Depois de uma tentativa rejeitada, espera
+# `retry_after` antes de tentar de novo.
+retry_after: 5m
+
+segment:
+  min_lines: 8
+  max_lines: 16
+  min_seconds: 60
+  max_seconds: 120
+  words_per_minute: 150
+
+check:
+  max_fact_drop_ratio: 0.30   # acima disso o segmento é rejeitado
+  min_lines_after_check: 6
+  judge_concurrency: 4
+  # Palavras capitalizadas que não são nomes de pessoas/organizações reais.
+  name_exceptions:
+    - Orlando
+    - Orlando Pimenta
+    - Pimenta
+    - Duda
+    - Duda Faísca
+    - Faísca
+    - TV Tá Ligado
+    - Tá Ligado
+    - Brasil
+    - C          # °C
+    - Isso
+    - Ok
+    - Tá
+    - Hein
+
+blocks:
+  - name: noticias
+    every: 20m
+    lead: orlando
+    support: duda
+    max_articles: 4
+    weather_fixed: [São Paulo, Rio de Janeiro, Brasília]
+    weather_rotating: 2
+    instructions: |
+      Orlando conduz e lê as notícias; Duda comenta com leveza, sem opinar sobre
+      culpa de ninguém. A previsão do tempo entra no fim do bloco.
+
+  - name: economia
+    every: 30m
+    lead: orlando
+    support: duda
+    max_articles: 2
+    include_market: true
+    article_keywords: [economia, dólar, inflação, ipca, selic, juros, pib, emprego, desemprego, imposto, arrecadação, bolsa, ibovespa, petróleo, salário, mercado]
+    instructions: |
+      Orlando apresenta os dados; Duda traduz para o público o que eles significam
+      no dia a dia, sem previsões. Só fatos: nunca recomende comprar, vender,
+      investir, aplicar ou resgatar nada.
+    closing_line: "Isso não é recomendação de investimento."
+    forbidden_phrases: [recomendo, recomendamos, compre, comprem, venda seus, vendam, invista, invistam, aplique, apliquem, vale a pena investir, hora de comprar, hora de vender, resgate, resgatem]
+
+  - name: humor
+    every: 30m
+    lead: duda
+    support: orlando
+    max_articles: 2
+    instructions: |
+      Duda conduz. O humor é sobre a situação ou sobre os próprios avatares
+      (a rixa pela cadeira, a "máquina", a idade do Orlando, as gírias da Duda).
+      Nunca faça piada sobre pessoas reais, grupos, tragédias ou vítimas.
+      Escolha notícias leves; se nenhuma for leve, brinque só com o estúdio.
