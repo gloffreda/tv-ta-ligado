@@ -13,7 +13,7 @@ import (
 // Candidate é um fato proposto pelo LLM a partir do texto de uma fonte.
 type Candidate struct {
 	Claim    string   `json:"claim"`
-	Entities []string `json:"entities"`
+	Entities []Entity `json:"entities"`
 	Value    *float64 `json:"value"`
 	Unit     string   `json:"unit"`
 }
@@ -33,7 +33,12 @@ const ExtractionSchema = `{
         "additionalProperties": false,
         "properties": {
           "claim": {"type": "string", "minLength": 10, "maxLength": 400},
-          "entities": {"type": "array", "items": {"type": "string", "minLength": 2}},
+          "entities": {"type": "array", "items": {
+            "type": "object", "required": ["name", "type"], "additionalProperties": false,
+            "properties": {
+              "name": {"type": "string", "minLength": 2},
+              "type": {"enum": ["person", "org", "place", "other"]}
+            }}},
           "value": {"type": ["number", "null"]},
           "unit": {"type": "string"}
         }
@@ -68,8 +73,8 @@ func Validate(c Candidate, source string) error {
 		}
 	}
 	for _, e := range c.Entities {
-		if !textutil.ContainsPhrase(source, e) {
-			return fmt.Errorf("entidade %q não está na fonte", e)
+		if !textutil.ContainsPhrase(source, e.Name) {
+			return fmt.Errorf("entidade %q não está na fonte", e.Name)
 		}
 	}
 	return nil

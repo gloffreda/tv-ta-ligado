@@ -16,6 +16,7 @@ import (
 	"github.com/gloffreda/tv-ta-ligado/internal/rundown"
 	"github.com/gloffreda/tv-ta-ligado/internal/script"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
+	"github.com/gloffreda/tv-ta-ligado/internal/textutil"
 )
 
 var (
@@ -23,6 +24,9 @@ var (
 	ErrBlackout    = errors.New("bloqueio eleitoral ativo: só reprise")
 	ErrNoFacts     = errors.New("pauta sem fatos válidos")
 )
+
+// MaxGlossaryTerms: termos de glossário por segmento.
+const MaxGlossaryTerms = 4
 
 type Pipeline struct {
 	Store     *store.Store
@@ -71,6 +75,20 @@ func (p *Pipeline) Guard(ctx context.Context) error {
 	return nil
 }
 
+// Lexicon monta a allowlist (config/allowlist.yaml + name_exceptions) e os prenomes.
+func (p *Pipeline) Lexicon(sched config.Schedule) (*check.Lexicon, []string, error) {
+	allow, err := config.LoadAllowlist(p.ConfigDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("allowlist.yaml: %w", err)
+	}
+	allow = append(allow, sched.Check.NameExceptions...)
+	names, err := config.LoadFirstNames(p.ConfigDir)
+	if err != nil {
+		return nil, nil, fmt.Errorf("first_names.txt: %w", err)
+	}
+	return check.NewLexicon(allow, names), allow, nil
+}
+
 // Generate produz e checa um segmento do bloco.
 func (p *Pipeline) Generate(ctx context.Context, blockName string) (Result, error) {
 	res, err := p.Draft(ctx, blockName)
@@ -80,8 +98,8 @@ func (p *Pipeline) Generate(ctx context.Context, blockName string) (Result, erro
 	return p.CheckDraft(ctx, res.SegmentID)
 }
 
-// Draft monta a pauta, extrai fatos e escreve o roteiro. O segmento fica
-// em 'draft' (ou 'rejected', se não houver fatos ou o roteiro falhar).
+// Draft monta a pauta, extrai fatos das matérias escolhidas e escreve o
+// roteiro. O segmento fica em 'draft' (ou 'rejected').
 func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) {
 	if err := p.Guard(ctx); err != nil {
 		return Result{}, err
@@ -120,11 +138,12 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 		return res, cause
 	}
 
-	// 1. Pauta.
+	// 1. Pauta pelo título (temas fora do brief excluídos antes).
 	cands, err := p.Store.CandidateArticles(ctx, now.Add(-p.CandidateWindow), now.Add(-p.ReuseWindow), 200)
 	if err != nil {
 		return res, err
 	}
+	cands, _ = rundown.Exclude(cands, sched.Exclude.URLParts, sched.Exclude.Keywords)
 	market, err := p.Store.LatestFactsByKind(ctx, facts.Market, now)
 	if err != nil {
 		return res, err
@@ -142,12 +161,17 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 		_ = p.Store.Event(ctx, "rundown_fallback", map[string]any{"segment_id": segID, "block": blockName, "warning": w})
 	}
 
-	// 2. Fatos dos artigos escolhidos (extração sob demanda, uma vez por artigo).
+	// 2. Extração preguiçosa: só das matérias escolhidas, em ordem, até max_articles.
+	type picked struct {
+		a  store.Article
+		fs []facts.Fact
+	}
 	extractor := &facts.Extractor{LLM: p.LLM, Model: p.Env.ModelFast, Now: p.Now}
-	var segFacts []facts.Fact
-	var items []store.RundownItem
-	rank := 1
+	var withPerson, chosen []picked
 	for _, a := range plan.Articles {
+		if len(chosen) >= block.MaxArticles {
+			break
+		}
 		fs, err := p.articleFacts(ctx, extractor, a, now)
 		if err != nil {
 			if llm.Fatal(err) {
@@ -158,12 +182,39 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 		if len(fs) == 0 {
 			continue
 		}
-		id := a.ID
+		// Humor: prefere matérias cujos fatos não citam pessoas.
+		if block.Name == "humor" && facts.HasPerson(fs) {
+			withPerson = append(withPerson, picked{a, fs})
+			continue
+		}
+		chosen = append(chosen, picked{a, fs})
+	}
+	for _, wp := range withPerson {
+		if len(chosen) >= block.MaxArticles {
+			break
+		}
+		chosen = append(chosen, wp)
+	}
+
+	var segFacts []facts.Fact
+	var items []store.RundownItem
+	rank := 1
+	for _, c := range chosen {
+		id := c.a.ID
 		items = append(items, store.RundownItem{ArticleID: &id, Rank: rank})
 		rank++
-		segFacts = append(segFacts, fs...)
+		segFacts = append(segFacts, c.fs...)
 	}
-	for _, f := range append(append([]facts.Fact{}, plan.Market...), plan.Weather...) {
+	extra := append(append([]facts.Fact{}, plan.Market...), plan.Weather...)
+	var titles []string
+	for _, c := range chosen {
+		titles = append(titles, c.a.Title)
+	}
+	gl, err := p.glossaryFor(ctx, now, append(append([]facts.Fact{}, segFacts...), extra...), titles)
+	if err != nil {
+		return res, err
+	}
+	for _, f := range append(extra, gl...) {
 		id := f.ID
 		items = append(items, store.RundownItem{FactID: &id, Rank: rank})
 		rank++
@@ -172,13 +223,13 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 	if err := p.Store.AddRundownItems(ctx, rundownID, items); err != nil {
 		return res, err
 	}
-	if len(segFacts) == 0 {
+	if len(segFacts) == len(gl) { // só glossário não é pauta
 		_ = p.Store.SetRundownStatus(ctx, rundownID, "empty")
 		return reject(0, ErrNoFacts.Error(), nil)
 	}
 	_ = p.Store.SetRundownStatus(ctx, rundownID, "used")
 
-	// 3. Roteiro: só fatos da pauta, personas e as 10 memórias de maior peso.
+	// 3. Roteiro: só fatos da pauta (com glossário), personas e as 10 memórias de maior peso.
 	mems, err := p.Store.TopMemories(ctx, 10, p.Env.MemoryHalfLife, now)
 	if err != nil {
 		return res, err
@@ -207,6 +258,50 @@ func fatalOrNil(err error) error {
 	return nil
 }
 
+// glossaryFor escolhe os termos de glossário citados na pauta (por termo ou
+// sinônimo), no máximo MaxGlossaryTerms.
+func (p *Pipeline) glossaryFor(ctx context.Context, now time.Time, segFacts []facts.Fact, titles []string) ([]facts.Fact, error) {
+	terms, err := config.LoadGlossary(p.ConfigDir)
+	if err != nil {
+		return nil, nil // glossário é opcional
+	}
+	gl, err := p.Store.LatestFactsByKind(ctx, facts.Glossary, now)
+	if err != nil {
+		return nil, err
+	}
+	bySeries := map[string]facts.Fact{}
+	for _, f := range gl {
+		bySeries[f.Series] = f
+	}
+	var text string
+	for _, f := range segFacts {
+		text += " " + f.Claim
+	}
+	for _, t := range titles {
+		text += " " + t
+	}
+	var out []facts.Fact
+	for _, t := range terms {
+		f, ok := bySeries[GlossarySeries(t.Term)]
+		if !ok {
+			continue
+		}
+		for _, a := range append([]string{t.Term}, t.Aliases...) {
+			if textutil.ContainsPhrase(text, a) {
+				out = append(out, f)
+				break
+			}
+		}
+		if len(out) >= MaxGlossaryTerms {
+			break
+		}
+	}
+	return out, nil
+}
+
+// GlossarySeries é a chave de série de um termo do glossário.
+func GlossarySeries(term string) string { return "glossary:" + textutil.Normalize(term) }
+
 // CheckDraft checa as falas de um segmento em rascunho e decide o destino.
 func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) {
 	res := Result{SegmentID: segID}
@@ -229,6 +324,10 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 	if err != nil {
 		return res, err
 	}
+	lex, allow, err := p.Lexicon(sched)
+	if err != nil {
+		return res, err
+	}
 	now := p.now()
 	ctx = llm.WithSegment(ctx, segID)
 
@@ -245,8 +344,20 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 		lines[i] = check.Line{Speaker: l.Speaker, Type: l.Type, Text: l.Text, FactIDs: l.FactIDs}
 	}
 
-	outs, err := p.check(ctx, block, sched, segFacts, lines, now)
+	env, err := p.env(ctx, block, lex, segFacts, lines, now)
+	if err != nil {
+		return res, err
+	}
+	flow := &check.Flow{
+		Env:      env,
+		Judge:    &check.Judge{LLM: p.LLM, Model: p.Env.ModelSmart},
+		Rewriter: &script.Rewriter{LLM: p.LLM, Model: p.Env.ModelSmart, Block: block, Facts: segFacts, Allow: relevantAllow(allow, segFacts)},
+	}
+	outs, err := flow.CheckAll(ctx, lines, sched.Check.JudgeConcurrency)
 	res.Outcomes = outs
+	if err == nil {
+		err = p.continuity(ctx, env, block, outs)
+	}
 	// Grava o que foi checado mesmo se a checagem parou no meio (orçamento).
 	for i, o := range outs {
 		if len(o.Attempts) > 0 {
@@ -266,14 +377,35 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 	if err := p.Store.FinishSegment(ctx, segID, status, reason); err != nil {
 		return res, err
 	}
-	// Memória: só de segmento aprovado; falha aqui não derruba o segmento.
 	if status == "approved" {
-		p.remember(ctx, segID, outs, personas, sched.Check.NameExceptions)
+		if err := p.Store.Air(ctx, segID, block.Name, "live"); err != nil {
+			slog.Warn("airing", "erro", err)
+		}
+		// Memória: só de segmento aprovado; falha aqui não derruba o segmento.
+		p.remember(ctx, segID, outs, personas, lex)
 	}
 	return res, nil
 }
 
-func (p *Pipeline) check(ctx context.Context, block config.Block, sched config.Schedule, segFacts []facts.Fact, lines []check.Line, now time.Time) ([]check.Outcome, error) {
+// relevantAllow: termos da allowlist que aparecem nos fatos do segmento.
+func relevantAllow(allow []string, fs []facts.Fact) []string {
+	var text string
+	for _, f := range fs {
+		text += " " + f.Claim
+	}
+	out := []string{"Orlando", "Duda"}
+	seen := map[string]bool{}
+	for _, a := range allow {
+		k := textutil.Normalize(a)
+		if !seen[k] && len(k) > 2 && textutil.ContainsPhrase(text, a) {
+			seen[k] = true
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (p *Pipeline) env(ctx context.Context, block config.Block, lex *check.Lexicon, segFacts []facts.Fact, lines []check.Line, now time.Time) (*check.Env, error) {
 	known, err := p.Store.AllEntities(ctx)
 	if err != nil {
 		return nil, err
@@ -290,16 +422,69 @@ func (p *Pipeline) check(ctx context.Context, block config.Block, sched config.S
 	for _, f := range segFacts {
 		factMap[f.ID] = f
 	}
-	env := &check.Env{
-		Facts: factMap, KnownEntities: known, NameExceptions: sched.Check.NameExceptions,
+	return &check.Env{
+		Facts: factMap, SegmentFacts: segFacts, KnownEntities: known, Lex: lex,
 		ForbiddenPhrases: block.ForbiddenPhrases, Now: now, Loc: p.Env.Location,
+	}, nil
+}
+
+// continuity: se houve cortes, um passe com MODEL_FAST pode só remover ou
+// encurtar falas banter órfãs. Encurtar = apagar palavras (verificado por
+// código) e a fala volta pelo estágio determinístico.
+func (p *Pipeline) continuity(ctx context.Context, env *check.Env, block config.Block, outs []check.Outcome) error {
+	var kept, dropped []script.Kept
+	lastKept := -1
+	for i, o := range outs {
+		if o.Status == "dropped" {
+			dropped = append(dropped, script.Kept{Seq: i + 1, Line: o.Original})
+		} else {
+			kept = append(kept, script.Kept{Seq: i + 1, Line: o.Final})
+			lastKept = i
+		}
 	}
-	flow := &check.Flow{
-		Env:      env,
-		Judge:    &check.Judge{LLM: p.LLM, Model: p.Env.ModelSmart},
-		Rewriter: &script.Rewriter{LLM: p.LLM, Model: p.Env.ModelSmart, Block: block, Facts: segFacts},
+	if len(dropped) == 0 || len(kept) == 0 {
+		return nil
 	}
-	return flow.CheckAll(ctx, lines, sched.Check.JudgeConcurrency)
+	c := &script.Continuity{LLM: p.LLM, Model: p.Env.ModelFast}
+	edits, err := c.Propose(ctx, kept, dropped)
+	if err != nil {
+		if llm.Fatal(err) {
+			return err
+		}
+		_ = p.Store.Event(ctx, "continuity_failed", map[string]string{"error": err.Error()})
+		return nil
+	}
+	for _, e := range edits {
+		i := e.Seq - 1
+		if i < 0 || i >= len(outs) || i == lastKept {
+			continue
+		}
+		o := &outs[i]
+		if o.Status == "dropped" || o.Status == "removed" || o.Final.Type != check.TypeBanter {
+			continue // só banter vivo
+		}
+		if block.ClosingLine != "" && textutil.ContainsPhrase(o.Final.Text, block.ClosingLine) {
+			continue
+		}
+		switch e.Action {
+		case "remove":
+			o.Status, o.Reason = "removed", "continuidade: fala de transição órfã após cortes"
+			o.Attempts = append(o.Attempts, check.Attempt{N: len(o.Attempts) + 1, Line: o.Final, Results: []check.StageResult{{Stage: "continuity", Passed: false, Reasons: []string{o.Reason}}}})
+		case "shorten":
+			if !script.IsShortening(o.Final.Text, e.Text) {
+				_ = p.Store.Event(ctx, "continuity_rejected", map[string]string{"text": e.Text, "reason": "não é só um encurtamento"})
+				continue
+			}
+			nl := check.Line{Speaker: o.Final.Speaker, Type: o.Final.Type, Text: e.Text, FactIDs: o.Final.FactIDs}
+			det := check.Deterministic(nl, env)
+			rs := check.StageResult{Stage: "continuity", Passed: det.Passed, Reasons: append([]string{"encurtada"}, det.Reasons...)}
+			o.Attempts = append(o.Attempts, check.Attempt{N: len(o.Attempts) + 1, Line: nl, Results: []check.StageResult{rs, det}})
+			if det.Passed {
+				o.Final = nl
+			}
+		}
+	}
+	return nil
 }
 
 func (p *Pipeline) persistOutcome(ctx context.Context, lineID int64, o check.Outcome) {
@@ -320,7 +505,7 @@ func (p *Pipeline) persistOutcome(ctx context.Context, lineID int64, o check.Out
 		status = "dropped"
 	}
 	var original *string
-	if len(o.Attempts) > 1 {
+	if o.Final.Text != o.Original.Text {
 		t := o.Original.Text
 		original = &t
 	}
@@ -333,7 +518,7 @@ func (p *Pipeline) persistOutcome(ctx context.Context, lineID int64, o check.Out
 	}
 }
 
-func (p *Pipeline) remember(ctx context.Context, segID int64, outs []check.Outcome, personas map[string]config.Persona, exc []string) {
+func (p *Pipeline) remember(ctx context.Context, segID int64, outs []check.Outcome, personas map[string]config.Persona, lex *check.Lexicon) {
 	known, err := p.Store.AllEntities(ctx)
 	if err != nil {
 		slog.Warn("memória: entidades", "erro", err)
@@ -341,14 +526,15 @@ func (p *Pipeline) remember(ctx context.Context, segID int64, outs []check.Outco
 	}
 	var lines []check.Line
 	for _, o := range outs {
-		if o.Status != "dropped" {
+		if o.Status != "dropped" && o.Status != "removed" {
 			lines = append(lines, o.Final)
 		}
 	}
-	ex := &persona.Extractor{LLM: p.LLM, Model: p.Env.ModelFast, NameExceptions: exc}
+	ex := &persona.Extractor{LLM: p.LLM, Model: p.Env.ModelFast, Lex: lex}
 	mems, dropped, err := ex.Extract(ctx, lines, personas, known)
 	if err != nil {
 		slog.Warn("memória: extração falhou", "erro", err)
+		_ = p.Store.Event(ctx, "memory_failed", map[string]any{"segment_id": segID, "error": err.Error()})
 		return
 	}
 	for _, m := range mems {

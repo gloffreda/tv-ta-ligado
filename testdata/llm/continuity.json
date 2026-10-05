@@ -1,0 +1,7 @@
+{"edits": [
+  {"seq": 11, "action": "shorten", "text": "Agora, a previsão do tempo."},
+  {"seq": 3, "action": "shorten", "text": "Olha, Orlando, é ponte demais."},
+  {"seq": 9, "action": "remove"},
+  {"seq": 16, "action": "remove"},
+  {"seq": 2, "action": "remove"}
+]}

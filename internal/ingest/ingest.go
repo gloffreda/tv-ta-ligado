@@ -207,30 +207,83 @@ func SGSPointURL(code int, d time.Time) string {
 	return fmt.Sprintf(sgsRange, code, d.AddDate(0, 0, -1).Format("02/01/2006"), d.Format("02/01/2006"))
 }
 
+// Política do BCB: timeout de 20 s por tentativa, 3 tentativas com backoff.
+var (
+	BCBTimeout  = 20 * time.Second
+	BCBAttempts = 3
+	BCBBackoff  = []time.Duration{2 * time.Second, 4 * time.Second}
+)
+
+// getRetry tenta a lista de URLs (uma por tentativa; a última se repete) com
+// timeout e backoff. Devolve o corpo da primeira que responder.
+func (in *Ingester) getRetry(ctx context.Context, urls []string) ([]byte, error) {
+	var lastErr error
+	for i := 0; i < BCBAttempts; i++ {
+		if i > 0 {
+			wait := BCBBackoff[min(i-1, len(BCBBackoff)-1)]
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		u := urls[min(i, len(urls)-1)]
+		cctx, cancel := context.WithTimeout(ctx, BCBTimeout)
+		body, err := in.get(cctx, u)
+		cancel()
+		if err == nil {
+			return body, nil
+		}
+		lastErr = fmt.Errorf("tentativa %d/%d: %w", i+1, BCBAttempts, err)
+		slog.Warn("BCB falhou", "url", u, "erro", lastErr)
+	}
+	return nil, lastErr
+}
+
 func (in *Ingester) bcb(ctx context.Context, s config.BCBSeries) error {
 	if _, err := in.Store.UpsertSource(ctx, "Banco Central (SGS)", "bcb", "https://api.bcb.gov.br/dados/serie/bcdata.sgs.{codigo}/dados", "public"); err != nil {
 		return err
 	}
 	// "ultimos/N" aceita no máximo 20 pontos, e a série 432 publica mais de
-	// 20 datas futuras; por isso a consulta é por intervalo até hoje.
+	// 20 datas futuras; por isso tenta antes a consulta por intervalo até hoje.
 	today := in.now().In(in.Loc)
-	body, err := in.get(ctx, fmt.Sprintf(sgsRange, s.Code, today.AddDate(0, 0, -120).Format("02/01/2006"), today.Format("02/01/2006")))
+	rangeURL := fmt.Sprintf(sgsRange, s.Code, today.AddDate(0, 0, -120).Format("02/01/2006"), today.Format("02/01/2006"))
+	body, err := in.getRetry(ctx, []string{rangeURL, rangeURL, fmt.Sprintf(sgsLast, s.Code)})
 	if err != nil {
-		slog.Warn("SGS por intervalo falhou; tentando ultimos/20", "serie", s.Code, "erro", err)
-		if body, err = in.get(ctx, fmt.Sprintf(sgsLast, s.Code)); err != nil {
-			return err
-		}
+		return in.keepLast(ctx, s, err)
 	}
 	var pts []sgsPoint
 	if err := json.Unmarshal(body, &pts); err != nil {
-		return fmt.Errorf("json: %w", err)
+		return in.keepLast(ctx, s, fmt.Errorf("json: %w", err))
 	}
 	f, err := MarketFact(s, pts, in.now(), in.Loc)
 	if err != nil {
-		return err
+		return in.keepLast(ctx, s, err)
 	}
 	_, err = in.Store.UpsertFact(ctx, f)
 	return err
+}
+
+// keepLast: a série falhou; o último valor válido (dentro da validade) segue
+// valendo, com aviso. Sem valor válido, a falha é devolvida.
+func (in *Ingester) keepLast(ctx context.Context, s config.BCBSeries, cause error) error {
+	series := fmt.Sprintf("bcb:%d", s.Code)
+	market, err := in.Store.LatestFactsByKind(ctx, facts.Market, in.now())
+	if err != nil {
+		return cause
+	}
+	for _, f := range market {
+		if f.Series == series {
+			_ = in.Store.Event(ctx, "bcb_stale", map[string]any{
+				"series": series, "kept_fact_id": f.ID, "as_of": f.AsOf.In(in.Loc).Format("02/01/2006"),
+				"expires_at": f.ExpiresAt.In(in.Loc).Format("02/01/2006 15:04"), "error": cause.Error(),
+				"note": "mantido o último valor válido",
+			})
+			slog.Warn("BCB indisponível; mantido o último valor válido", "serie", series, "as_of", f.AsOf.In(in.Loc).Format("02/01/2006"))
+			return nil
+		}
+	}
+	return fmt.Errorf("%w (sem valor válido anterior)", cause)
 }
 
 // MarketFact monta o fato a partir da resposta da API SGS.
@@ -264,7 +317,7 @@ func MarketFact(s config.BCBSeries, pts []sgsPoint, now time.Time, loc *time.Loc
 		"{mes_ano}", facts.MonthYear(bestDate),
 	).Replace(s.Claim)
 	return facts.Fact{
-		Kind: facts.Market, Claim: claim, Entities: s.Entities, Value: &v, Unit: s.Unit,
+		Kind: facts.Market, Claim: claim, Entities: orgs(s.Entities), Value: &v, Unit: s.Unit,
 		AsOf: bestDate, SourceName: "Banco Central (SGS)", SourceURL: SGSPointURL(s.Code, bestDate),
 		Series: fmt.Sprintf("bcb:%d", s.Code), ExpiresAt: now.Add(facts.TTL(facts.Market)),
 	}, nil
@@ -335,10 +388,19 @@ func WeatherFact(c config.Capital, d omDaily, w config.Weather, now time.Time, l
 	claim := fmt.Sprintf("Previsão para %s em %s (%s): máxima de %s °C, mínima de %s °C e %s%% de chance de chuva, segundo o %s.",
 		day.Format("02/01/2006"), c.City, c.UF, fmtTemp(mx), fmtTemp(mn), facts.FormatBR(pr, 0), w.SourceName)
 	return facts.Fact{
-		Kind: facts.Weather, Claim: claim, Entities: []string{c.City, c.UF, w.SourceName}, Value: &mx, Unit: "°C",
+		Kind: facts.Weather, Claim: claim, Entities: []facts.Entity{{Name: c.City, Type: facts.Place}, {Name: c.UF, Type: facts.Place}, {Name: w.SourceName, Type: facts.Org}}, Value: &mx, Unit: "°C",
 		AsOf: day, SourceName: w.SourceName, SourceURL: cityURL(w.URL, c),
 		Series: "weather:" + c.City, ExpiresAt: now.Add(facts.TTL(facts.Weather)),
 	}, nil
+}
+
+// orgs: as entidades das séries do BCB são instituições e índices.
+func orgs(names []string) []facts.Entity {
+	out := make([]facts.Entity, len(names))
+	for i, n := range names {
+		out[i] = facts.Entity{Name: n, Type: facts.Org}
+	}
+	return out
 }
 
 func fmtTemp(v float64) string {

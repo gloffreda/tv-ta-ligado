@@ -3,6 +3,11 @@
 # `retry_after` antes de tentar de novo.
 retry_after: 5m
 
+# Temas fora do brief ficam fora da pauta (o MVP não tem bloco de saúde).
+exclude:
+  url_parts: [/saude/, /saude., equilibrioesaude, /bem-estar/, /vivabem/, /medicina/, /coronavirus/]
+  keywords: [saúde, doença, doenças, sintoma, sintomas, câncer, vacina, vacinação, médico, médicos, hospital, hospitais, tratamento, diagnóstico, remédio, medicamento, dieta, epidemia, pandemia, vírus, infecção, dengue, gripe, covid]
+
 segment:
   min_lines: 8
   max_lines: 16
@@ -14,22 +19,8 @@ check:
   max_fact_drop_ratio: 0.30   # acima disso o segmento é rejeitado
   min_lines_after_check: 6
   judge_concurrency: 4
-  # Palavras capitalizadas que não são nomes de pessoas/organizações reais.
-  name_exceptions:
-    - Orlando
-    - Orlando Pimenta
-    - Pimenta
-    - Duda
-    - Duda Faísca
-    - Faísca
-    - TV Tá Ligado
-    - Tá Ligado
-    - Brasil
-    - C          # °C
-    - Isso
-    - Ok
-    - Tá
-    - Hein
+  # Termos permitidos (instituições, lugares, avatares...): config/allowlist.yaml
+  # Prenomes que indicam pessoa real: config/first_names.txt
 
 blocks:
   - name: noticias

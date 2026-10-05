@@ -1,0 +1,198 @@
+# Glossário com fonte oficial. Cada termo vira um fato kind=glossary (sem
+# validade). `tvtl glossary` (também na partida do `run`) valida a fonte:
+# baixa `check_url`, exige HTTP 200 e que a frase `check` esteja no texto.
+# Termo sem fonte válida fica fora.
+#
+# BCB: o site é uma aplicação JavaScript que responde 200 para qualquer
+# caminho; o conteúdo real vem de /api/paginasite/sitebcb/<caminho>.
+# IBGE (PIB, desemprego) e PTAX/câmbio ficaram fora: ver DECISIONS.md.
+
+terms:
+  - term: Selic
+    aliases: [Selic, taxa Selic, taxa básica de juros, juros básicos]
+    definition: "A taxa Selic é a taxa básica de juros da economia, que influencia outras taxas de juros do país, como taxas de empréstimos, financiamentos e aplicações financeiras."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/controleinflacao/taxaselic
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/controleinflacao/taxaselic
+    check: "taxa básica de juros da economia, que influencia outras taxas de juros do país"
+    entities: [{name: Selic, type: other}, {name: Banco Central, type: org}]
+
+  - term: Copom
+    aliases: [Copom, Comitê de Política Monetária]
+    definition: "O Comitê de Política Monetária (Copom) é o órgão do Banco Central, formado pelo seu Presidente e diretores, que define, a cada 45 dias, a taxa básica de juros da economia, a Selic."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/controleinflacao/copom
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/controleinflacao/copom
+    check: "formado pelo seu Presidente e diretores, que define, a cada 45 dias"
+    entities: [{name: Copom, type: org}, {name: Comitê de Política Monetária, type: org}, {name: Banco Central, type: org}, {name: Selic, type: other}]
+
+  - term: Inflação
+    aliases: [inflação, inflacionária, poder de compra]
+    definition: "Inflação é o aumento dos preços de bens e serviços. Ela implica diminuição do poder de compra da moeda."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/controleinflacao/oqueinflacao
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/controleinflacao/oqueinflacao
+    check: "Inflação é o aumento dos preços de bens e serviços. Ela implica diminuição do poder de compra da moeda."
+    entities: []
+
+  - term: IPCA
+    aliases: [IPCA, Índice Nacional de Preços ao Consumidor Amplo]
+    definition: "O Índice Nacional de Preços ao Consumidor Amplo (IPCA) é o índice utilizado no sistema de metas para a inflação."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/controleinflacao/oqueinflacao
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/controleinflacao/oqueinflacao
+    check: "O Índice Nacional de Preços ao Consumidor Amplo (IPCA) é o índice utilizado no sistema de metas para a inflação"
+    entities: [{name: IPCA, type: other}, {name: Índice Nacional de Preços ao Consumidor Amplo, type: other}]
+
+  - term: Índice de preços
+    aliases: [índice de preços, índices de preços, índice oficial de inflação]
+    definition: "Para medir a inflação são construídos índices de preços, que tomam uma média de diversos preços de modo a resumi-los em um único número."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/controleinflacao/indicepreco
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/controleinflacao/indicepreco
+    check: "que tomam uma média de diversos preços de modo a resumi-los em um único número"
+    entities: []
+
+  - term: Meta para a inflação
+    aliases: [meta de inflação, meta para a inflação, metas para a inflação, meta inflacionária]
+    definition: "O Brasil adota o regime de metas para a inflação desde 1999: os bancos centrais atuam para que a inflação efetiva esteja em linha com uma meta pré-estabelecida, que é anunciada publicamente."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/controleinflacao/metainflacao
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/controleinflacao/metainflacao
+    check: "os bancos centrais atuam para que a inflação efetiva esteja em linha com uma meta pré-estabelecida"
+    entities: [{name: Brasil, type: place}]
+
+  - term: Reservas internacionais
+    aliases: [reservas internacionais]
+    definition: "As reservas internacionais são os ativos externos, denominados em moeda conversível, controlados pelo Banco Central e mantidos com elevado grau de liquidez para uso quando necessário."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/estabilidadefinanceira/reservasinternacionais
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/estabilidadefinanceira/reservasinternacionais
+    check: "são os ativos externos, denominados em moeda conversível, controlados pelo Banco Central"
+    entities: [{name: Banco Central, type: org}]
+
+  - term: Pix
+    aliases: [Pix]
+    definition: "Pix é um sistema de pagamento instantâneo criado pelo Banco Central, que permite transferir dinheiro entre contas em segundos, a qualquer hora e dia."
+    source_name: Banco Central do Brasil
+    url: https://www.bcb.gov.br/estabilidadefinanceira/pix
+    check_url: https://www.bcb.gov.br/api/paginasite/sitebcb/estabilidadefinanceira/pix
+    check: "Pix é um sistema de pagamento instantâneo criado pelo Banco Central"
+    entities: [{name: Pix, type: other}, {name: Banco Central, type: org}]
+
+  - term: Frente fria
+    aliases: [frente fria, frentes frias]
+    definition: "Frente fria é a extremidade principal de uma massa de ar fria que avança deslocando o ar quente de seu caminho. Geralmente, com a passagem de uma frente fria, a temperatura e a umidade diminuem."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "A extremidade principal de uma massa de ar fria que avança deslocando o ar quente de seu caminho"
+    entities: []
+
+  - term: Frente quente
+    aliases: [frente quente]
+    definition: "Frente quente é a extremidade principal de uma massa de ar quente que, ao avançar, substitui uma massa de ar relativamente fria que está indo embora."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "substitui uma massa de ar relativamente fria que está indo embora"
+    entities: []
+
+  - term: Massa de ar
+    aliases: [massa de ar, massas de ar, massa de ar frio, massa de ar quente, massa de ar seco]
+    definition: "Em meteorologia, massa de ar é uma região da atmosfera em que a temperatura e a umidade, no plano horizontal, apresentam características uniformes."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "região da atmosfera em que a temperatura e a umidade"
+    entities: []
+
+  - term: Geada
+    aliases: [geada, geadas]
+    definition: "Geada é um depósito de gelo cristalino resultante da sublimação do vapor d'água do ar sobre a superfície do solo, das plantas e dos objetos expostos ao ar."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "Depósito de gelo cristalino"
+    entities: []
+
+  - term: Granizo
+    aliases: [granizo, chuva de granizo]
+    definition: "Granizo é a precipitação que se origina de nuvens convectivas e cai em forma de bolas ou pedaços irregulares de gelo."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "cai em forma de bolas ou pedaços irregulares de gelo"
+    entities: []
+
+  - term: Onda de calor
+    aliases: [onda de calor, ondas de calor]
+    definition: "Segundo a Organização Meteorológica Mundial, onda de calor são cinco ou mais dias consecutivos em que a temperatura máxima diária ultrapassa a temperatura máxima média mensal em 5 °C ou mais."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "cinco ou mais dias consecutivos durante os quais a temperatura máxima diária ultrapassa"
+    entities: [{name: Organização Meteorológica Mundial, type: org}]
+
+  - term: Nevoeiro
+    aliases: [nevoeiro, neblina]
+    definition: "Nevoeiro é uma massa de minúsculas, porém visíveis, gotículas de água suspensas na atmosfera, próximas da superfície, que reduzem a visibilidade horizontal para menos de mil metros."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "reduzem a visibilidade horizontal para menos de mil metros"
+    entities: []
+
+  - term: Garoa
+    aliases: [garoa, chuvisco]
+    definition: "Garoa, ou chuvisco, é uma precipitação bastante uniforme, composta exclusivamente de gotas d'água muito pequenas, muito próximas umas das outras."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "composta exclusivamente de gotas d'água muito pequenas"
+    entities: []
+
+  - term: Rajada de vento
+    aliases: [rajada, rajadas, rajada de vento, rajadas de vento, ventania]
+    definition: "Rajadas de vento são mudanças bruscas na velocidade do vento em um pequeno intervalo de tempo."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "mudanças bruscas na velocidade do vento em um pequeno intervalo de tempo"
+    entities: []
+
+  - term: Ciclone extratropical
+    aliases: [ciclone, ciclone extratropical]
+    definition: "Ciclone extratropical é um sistema de área de baixa pressão atmosférica em seu centro, de origem não tropical, também chamado de tempestade extratropical."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "Sistema de área de baixa pressão atmosférica em seu centro"
+    entities: []
+
+  - term: El Niño
+    aliases: [El Niño]
+    definition: "El Niño é um fenômeno meteorológico caracterizado pelo aquecimento anormal das águas do Oceano Pacífico Equatorial, capaz de alterar o clima em todo o mundo."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "aquecimento anormal das águas do Oceano Pacífico Equatorial"
+    entities: [{name: El Niño, type: other}, {name: Oceano Pacífico Equatorial, type: place}]
+
+  - term: Chuva
+    aliases: [chuva, chance de chuva, chuvas]
+    definition: "Chuva é o resultado da condensação na atmosfera, quando as gotas superam as correntes verticais de ar e caem em direção ao solo. Normalmente é medida a altura da precipitação em milímetros."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "quando as gotas superam as correntes verticais de ar"
+    entities: []
+
+  - term: Amplitude térmica
+    aliases: [amplitude térmica, máxima, mínima]
+    definition: "A diferença entre a maior e a menor temperatura chama-se amplitude térmica."
+    source_name: INMET
+    url: https://portal.inmet.gov.br/glossario/glossario
+    check_url: https://portal.inmet.gov.br/glossario/glossario
+    check: "A diferença entre a maior e a menor temperatura chama-se amplitude térmica"
+    entities: []

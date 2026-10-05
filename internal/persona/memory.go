@@ -8,6 +8,7 @@ import (
 
 	"github.com/gloffreda/tv-ta-ligado/internal/check"
 	"github.com/gloffreda/tv-ta-ligado/internal/config"
+	"github.com/gloffreda/tv-ta-ligado/internal/facts"
 	"github.com/gloffreda/tv-ta-ligado/internal/llm"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
 )
@@ -36,17 +37,17 @@ var memorySchema = llm.MustSchema("memory.json", `{
 
 const memorySystem = `Você mantém a memória de dois avatares de um telejornal: Orlando Pimenta e Duda Faísca.
 Do roteiro aprovado, extraia até 3 memórias sobre a relação entre os avatares: rixa (feud), piada interna (joke), opinião de um sobre o outro (opinion) ou bordão recorrente (running_gag).
-NUNCA registre memórias sobre pessoas reais, notícias, números, datas, empresas, lugares ou política. Só sobre os avatares e o estúdio.
+NUNCA registre memórias sobre pessoas reais, números, datas ou política. Lugares e instituições conhecidas (São Paulo, Banco Central) podem aparecer como contexto. O foco é a relação entre os avatares.
 Responda apenas com JSON: {"memories":[{"persona":"orlando|duda","kind":"feud|joke|opinion|running_gag","content":"..."}]}`
 
 type Extractor struct {
-	LLM            llm.Client
-	Model          string
-	NameExceptions []string
+	LLM   llm.Client
+	Model string
+	Lex   *check.Lexicon
 }
 
 // Extract devolve as memórias válidas e os motivos das descartadas.
-func (e *Extractor) Extract(ctx context.Context, lines []check.Line, personas map[string]config.Persona, knownEntities []string) ([]store.Memory, []string, error) {
+func (e *Extractor) Extract(ctx context.Context, lines []check.Line, personas map[string]config.Persona, knownEntities []facts.Entity) ([]store.Memory, []string, error) {
 	var b strings.Builder
 	b.WriteString("Roteiro aprovado:\n")
 	for _, l := range lines {
@@ -75,27 +76,14 @@ func (e *Extractor) Extract(ctx context.Context, lines []check.Line, personas ma
 	return kept, dropped, nil
 }
 
-// reject valida pela lista de entidades e pela heurística de nomes próprios.
-func (e *Extractor) reject(m store.Memory, personas map[string]config.Persona, known []string) string {
+// reject: pessoas nunca; lugares e organizações só os da allowlist.
+func (e *Extractor) reject(m store.Memory, personas map[string]config.Persona, known []facts.Entity) string {
 	if _, ok := personas[m.Persona]; !ok {
 		return "persona desconhecida"
 	}
-	for _, ent := range known {
-		if check.MentionsEntity(m.Content, ent) && !isException(ent, e.NameExceptions) {
-			return "cita entidade real: " + ent
-		}
-	}
-	if names := check.DetectNames(m.Content, e.NameExceptions); len(names) > 0 {
-		return "cita nome próprio: " + strings.Join(names, ", ")
+	nf := e.Lex.Analyze(m.Content, known, nil)
+	if !nf.Empty() {
+		return "cita nome fora da allowlist: " + strings.Join(nf.All(), ", ")
 	}
 	return ""
-}
-
-func isException(s string, exc []string) bool {
-	for _, e := range exc {
-		if strings.EqualFold(strings.TrimSpace(e), strings.TrimSpace(s)) {
-			return true
-		}
-	}
-	return false
 }

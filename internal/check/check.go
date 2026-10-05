@@ -34,8 +34,9 @@ type Line struct {
 // Env é o que a checagem determinística precisa saber.
 type Env struct {
 	Facts            map[int64]facts.Fact // ao menos os referenciados
-	KnownEntities    []string             // entidades de todos os fatos do banco
-	NameExceptions   []string
+	SegmentFacts     []facts.Fact         // fatos da pauta (contexto do banter)
+	KnownEntities    []facts.Entity       // entidades (tipadas) de todos os fatos do banco
+	Lex              *Lexicon
 	ForbiddenPhrases []string
 	Now              time.Time
 	Loc              *time.Location
@@ -49,10 +50,45 @@ type StageResult struct {
 	Detail  map[string]any `json:"detail,omitempty"`
 }
 
+// BanterCover: organizações e lugares dos fatos do segmento podem ser citados
+// em banter (pessoas, nunca).
+func (env *Env) BanterCover() []string {
+	var out []string
+	for _, f := range env.SegmentFacts {
+		for _, e := range f.Entities {
+			if e.Type != facts.Person {
+				out = append(out, e.Name)
+			}
+		}
+	}
+	return out
+}
+
+func nameReasons(prefix string, nf NameFindings) []string {
+	var r []string
+	for _, n := range nf.Persons {
+		r = append(r, fmt.Sprintf("%s cita pessoa real: %q", prefix, n))
+	}
+	for _, n := range nf.FirstNames {
+		r = append(r, fmt.Sprintf("%s com prenome de pessoa: %q", prefix, n))
+	}
+	for _, n := range nf.Runs {
+		r = append(r, fmt.Sprintf("%s com nome próprio fora da allowlist: %q", prefix, n))
+	}
+	for _, n := range nf.Others {
+		r = append(r, fmt.Sprintf("%s com organização/lugar fora da allowlist: %q", prefix, n))
+	}
+	return r
+}
+
 // Deterministic aplica as regras de código a uma fala.
 func Deterministic(l Line, env *Env) StageResult {
 	var reasons []string
 	fail := func(format string, a ...any) { reasons = append(reasons, fmt.Sprintf(format, a...)) }
+	lex := env.Lex
+	if lex == nil {
+		lex = NewLexicon(nil, nil)
+	}
 
 	text := strings.TrimSpace(l.Text)
 	if text == "" {
@@ -65,7 +101,7 @@ func Deterministic(l Line, env *Env) StageResult {
 	}
 
 	var refs []facts.Fact
-	var refEntities []string
+	var refNames []string
 	switch l.Type {
 	case TypeFact:
 		if len(l.FactIDs) == 0 {
@@ -82,7 +118,7 @@ func Deterministic(l Line, env *Env) StageResult {
 				continue
 			}
 			refs = append(refs, f)
-			refEntities = append(refEntities, f.Entities...)
+			refNames = append(refNames, facts.Names(f.Entities)...)
 		}
 	case TypeBanter:
 	default:
@@ -103,32 +139,21 @@ func Deterministic(l Line, env *Env) StageResult {
 		}
 	}
 
-	// Nomes: heurística + entidades conhecidas do banco.
-	names := DetectNames(text, env.NameExceptions)
-	exc := map[string]bool{}
-	for _, e := range env.NameExceptions {
-		exc[textutil.Normalize(e)] = true
-	}
-	for _, e := range env.KnownEntities {
-		if !exc[textutil.Normalize(e)] && MentionsEntity(text, e) {
-			names = append(names, e)
-		}
-	}
-	names = dedupe(names)
-	if l.Type == TypeBanter {
-		for _, n := range names {
-			fail("banter com nome próprio: %q", n)
-		}
-	} else if len(refs) > 0 {
-		for _, n := range names {
-			if !covered(n, refEntities) {
-				fail("nome %q fora de entities dos fatos referenciados", n)
-			}
+	// Nomes.
+	var nf NameFindings
+	switch {
+	case l.Type == TypeBanter:
+		nf = lex.Analyze(text, env.KnownEntities, env.BanterCover())
+		reasons = append(reasons, nameReasons("banter", nf)...)
+	case len(refs) > 0:
+		nf = lex.Analyze(text, env.KnownEntities, refNames)
+		for _, r := range nameReasons("fala fact", nf) {
+			reasons = append(reasons, r+" (não está em entities dos fatos referenciados)")
 		}
 	}
 
 	res := StageResult{Stage: StageDeterministic, Passed: len(reasons) == 0, Reasons: reasons}
-	res.Detail = map[string]any{"numbers": rawNumbers(nums), "names": names}
+	res.Detail = map[string]any{"numbers": rawNumbers(nums), "names": nf.All()}
 	return res
 }
 
@@ -136,19 +161,6 @@ func rawNumbers(ns []brnum.Number) []string {
 	out := make([]string, len(ns))
 	for i, n := range ns {
 		out[i] = n.Raw
-	}
-	return out
-}
-
-func dedupe(ss []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, s := range ss {
-		k := textutil.Normalize(s)
-		if !seen[k] {
-			seen[k] = true
-			out = append(out, s)
-		}
 	}
 	return out
 }
@@ -207,13 +219,19 @@ func NumberSupported(n brnum.Number, refs []facts.Fact, loc *time.Location) bool
 
 // ---- Estágio 2: juiz ----
 
+// JudgeResult unifica os dois modos do juiz.
 type JudgeResult struct {
-	Entailed         bool     `json:"entailed"`
-	Unsupported      []string `json:"unsupported"`
-	RealPersonMocked bool     `json:"real_person_mocked"`
+	// Modo fact.
+	Entailed    bool     `json:"entailed"`
+	Unsupported []string `json:"unsupported"`
+	// Modo banter.
+	NewFactualClaim bool   `json:"new_factual_claim"`
+	Claim           string `json:"claim"`
+	// Ambos.
+	RealPersonMocked bool `json:"real_person_mocked"`
 }
 
-var judgeSchema = llm.MustSchema("judge.json", `{
+var judgeFactSchema = llm.MustSchema("judge_fact.json", `{
   "type": "object",
   "required": ["entailed", "unsupported", "real_person_mocked"],
   "properties": {
@@ -223,32 +241,52 @@ var judgeSchema = llm.MustSchema("judge.json", `{
   }
 }`)
 
-const judgeSystem = `Você é o checador de fatos de um telejornal brasileiro apresentado por dois avatares fictícios, Orlando Pimenta e Duda Faísca. Sua função é impedir que qualquer afirmação sem fonte vá ao ar. Seja rigoroso: na dúvida, reprove.
+var judgeBanterSchema = llm.MustSchema("judge_banter.json", `{
+  "type": "object",
+  "required": ["new_factual_claim", "claim", "real_person_mocked"],
+  "properties": {
+    "new_factual_claim": {"type": "boolean"},
+    "claim": {"type": "string"},
+    "real_person_mocked": {"type": "boolean"}
+  }
+}`)
 
-Você recebe UMA fala e o texto dos fatos que a sustentam.
+const judgeFactSystem = `Você é o checador de fatos de um telejornal brasileiro apresentado por dois avatares fictícios, Orlando Pimenta e Duda Faísca. Sua função é impedir que qualquer afirmação sem fonte vá ao ar. Seja rigoroso: na dúvida, reprove.
 
-Para fala do tipo "fact":
-- entailed=true somente se TODA afirmação factual da fala estiver sustentada pelos fatos (paráfrase é permitida; arredondamento correto é permitido).
+Você recebe UMA fala do tipo "fact" e o texto dos fatos que a sustentam.
+- entailed=true somente se TODA afirmação factual da fala estiver sustentada pelos fatos (paráfrase é permitida; arredondamento correto é permitido; definições de glossário valem como fato).
 - Causas, consequências, previsões, comparações, contexto, adjetivos que impliquem fatos novos, ou qualquer detalhe ausente dos fatos tornam entailed=false. Liste esses trechos em "unsupported".
+- Saudações e conectivos ("Boa noite.", "Outra notícia:") não são afirmações factuais.
+- real_person_mocked=true se a fala ridiculariza, zomba ou faz piada com uma pessoa real ou com um grupo real de pessoas.
 
-Para fala do tipo "banter" (comentário, reação, piada):
-- entailed=true se a fala não fizer nenhuma afirmação factual concreta sobre o mundo real. Opiniões, reações, brincadeiras entre os avatares e comentários genéricos são permitidos.
-- Qualquer afirmação concreta sobre o mundo real torna entailed=false; liste o trecho em "unsupported".
+Responda apenas com JSON: {"entailed": true|false, "unsupported": ["trecho", ...], "real_person_mocked": true|false}`
 
-Para qualquer tipo:
-- real_person_mocked=true se a fala ridiculariza, zomba ou faz piada com uma pessoa real (qualquer pessoa que não seja os avatares Orlando Pimenta e Duda Faísca) ou com um grupo real de pessoas.
+const judgeBanterSystem = `Você revisa falas de "banter" (comentário, reação, transição, piada) de um telejornal apresentado por dois avatares fictícios, Orlando Pimenta e Duda Faísca.
 
-Responda apenas com JSON, sem texto fora dele:
-{"entailed": true|false, "unsupported": ["trecho", ...], "real_person_mocked": true|false}`
+PERMITIDO: opinião, piada, exagero óbvio, reação emocional, comentário sobre os próprios avatares e sobre o estúdio (a rixa pela cadeira, "a máquina", a idade do Orlando, as gírias da Duda), memórias e bordões dos avatares, chamadas para a próxima notícia, e repetir em outras palavras o que os fatos do segmento já dizem.
+
+PROIBIDO:
+1. Afirmação factual NOVA sobre o mundo real: algo verificável que não está nos fatos do segmento (quem, o quê, quando, onde, quanto, causa, consequência, parentesco, recorde...).
+2. Zombar de pessoa real ou de grupo real de pessoas.
+
+Responda apenas com JSON: {"new_factual_claim": true|false, "claim": "o trecho da afirmação nova, ou vazio", "real_person_mocked": true|false}`
 
 type Judge struct {
 	LLM   llm.Client
 	Model string
 }
 
+// Evaluate escolhe o modo pelo tipo da fala. refs: fatos citados (fact) ou
+// fatos do segmento (banter, como contexto do que já foi dito).
 func (j *Judge) Evaluate(ctx context.Context, l Line, refs []facts.Fact) (JudgeResult, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Tipo da fala: %s\nFala: %q\n\nFatos referenciados:\n", l.Type, l.Text)
+	system, schema := judgeFactSystem, judgeFactSchema
+	if l.Type == TypeBanter {
+		system, schema = judgeBanterSystem, judgeBanterSchema
+		fmt.Fprintf(&b, "Fala (banter): %q\n\nFatos do segmento (já ditos no ar):\n", l.Text)
+	} else {
+		fmt.Fprintf(&b, "Fala (fact): %q\n\nFatos referenciados:\n", l.Text)
+	}
 	if len(refs) == 0 {
 		b.WriteString("(nenhum)\n")
 	}
@@ -256,14 +294,14 @@ func (j *Judge) Evaluate(ctx context.Context, l Line, refs []facts.Fact) (JudgeR
 		fmt.Fprintf(&b, "- [%d] %s (fonte: %s)\n", f.ID, f.Claim, f.SourceName)
 	}
 	resp, err := j.LLM.Complete(ctx, llm.Request{
-		Purpose: "judge", Model: j.Model, System: judgeSystem, Prompt: b.String(),
+		Purpose: "judge", Model: j.Model, System: system, Prompt: b.String(),
 		MaxTokens: 4000, Temperature: llm.Float(0), Effort: "low",
 	})
 	if err != nil {
 		return JudgeResult{}, err
 	}
 	var r JudgeResult
-	if err := judgeSchema.Decode(resp.Text, &r); err != nil {
+	if err := schema.Decode(resp.Text, &r); err != nil {
 		return JudgeResult{}, err
 	}
 	return r, nil
@@ -271,9 +309,13 @@ func (j *Judge) Evaluate(ctx context.Context, l Line, refs []facts.Fact) (JudgeR
 
 // ---- Fluxo por fala ----
 
-// Rewriter reescreve uma fala reprovada, recebendo o motivo.
+// MaxRewrites: no máximo duas reescritas por fala.
+const MaxRewrites = 2
+
+// Rewriter reescreve uma fala reprovada. original é a fala do roteiro; last,
+// a última tentativa; reasons, por que last reprovou.
 type Rewriter interface {
-	Rewrite(ctx context.Context, l Line, reasons []string) (Line, error)
+	Rewrite(ctx context.Context, original, last Line, reasons []string) (Line, error)
 }
 
 type Attempt struct {
@@ -285,7 +327,7 @@ type Attempt struct {
 type Outcome struct {
 	Original Line
 	Final    Line
-	Status   string // ok | rewritten | dropped
+	Status   string // ok | rewritten | dropped | removed (continuidade)
 	Reason   string
 	Attempts []Attempt
 }
@@ -296,11 +338,9 @@ type Flow struct {
 	Rewriter Rewriter
 }
 
-func (f *Flow) evaluate(ctx context.Context, l Line) ([]StageResult, []string, error) {
-	det := Deterministic(l, f.Env)
-	results := []StageResult{det}
-	if !det.Passed {
-		return results, det.Reasons, nil
+func (f *Flow) judgeRefs(l Line) []facts.Fact {
+	if l.Type == TypeBanter {
+		return f.Env.SegmentFacts
 	}
 	var refs []facts.Fact
 	for _, id := range l.FactIDs {
@@ -308,65 +348,102 @@ func (f *Flow) evaluate(ctx context.Context, l Line) ([]StageResult, []string, e
 			refs = append(refs, fa)
 		}
 	}
-	jr, err := f.Judge.Evaluate(ctx, l, refs)
+	return refs
+}
+
+func (f *Flow) judge(ctx context.Context, l Line) (StageResult, error) {
+	jr, err := f.Judge.Evaluate(ctx, l, f.judgeRefs(l))
 	if err != nil {
 		if llm.Fatal(err) {
-			return results, nil, err
+			return StageResult{}, err
 		}
 		reason := "juiz indisponível ou resposta inválida: " + err.Error()
-		results = append(results, StageResult{Stage: StageJudge, Passed: false, Reasons: []string{reason}})
-		return results, []string{reason}, nil
+		return StageResult{Stage: StageJudge, Passed: false, Reasons: []string{reason}}, nil
 	}
 	var reasons []string
-	if !jr.Entailed {
-		r := "juiz: afirmação sem sustentação nos fatos"
-		if len(jr.Unsupported) > 0 {
-			r += ": " + strings.Join(jr.Unsupported, " | ")
+	detail := map[string]any{"real_person_mocked": jr.RealPersonMocked}
+	if l.Type == TypeBanter {
+		detail["new_factual_claim"], detail["claim"] = jr.NewFactualClaim, jr.Claim
+		if jr.NewFactualClaim {
+			reasons = append(reasons, "juiz: afirmação factual nova no banter: "+jr.Claim)
 		}
-		reasons = append(reasons, r)
+	} else {
+		detail["entailed"], detail["unsupported"] = jr.Entailed, jr.Unsupported
+		if !jr.Entailed {
+			r := "juiz: afirmação sem sustentação nos fatos"
+			if len(jr.Unsupported) > 0 {
+				r += ": " + strings.Join(jr.Unsupported, " | ")
+			}
+			reasons = append(reasons, r)
+		}
 	}
 	if jr.RealPersonMocked {
 		reasons = append(reasons, "juiz: piada/zombaria com pessoa real")
 	}
-	results = append(results, StageResult{Stage: StageJudge, Passed: len(reasons) == 0, Reasons: reasons,
-		Detail: map[string]any{"entailed": jr.Entailed, "unsupported": jr.Unsupported, "real_person_mocked": jr.RealPersonMocked}})
-	return results, reasons, nil
+	return StageResult{Stage: StageJudge, Passed: len(reasons) == 0, Reasons: reasons, Detail: detail}, nil
 }
 
-// CheckLine: reprovou, reescreve uma vez com o motivo; reprovou de novo, corta.
+// CheckLine: estágio 1 + juiz. Reprovou: até 2 reescritas, cada uma checada
+// primeiro pelo estágio determinístico (sem custo de juiz); a que passar vai
+// ao juiz uma vez. Reprovou de novo, a fala é cortada.
 func (f *Flow) CheckLine(ctx context.Context, l Line) (Outcome, error) {
 	out := Outcome{Original: l}
-	res, reasons, err := f.evaluate(ctx, l)
-	out.Attempts = append(out.Attempts, Attempt{N: 1, Line: l, Results: res})
-	if err != nil {
-		return out, err
-	}
-	if len(reasons) == 0 {
-		out.Final, out.Status = l, "ok"
-		return out, nil
-	}
-	rw, err := f.Rewriter.Rewrite(ctx, l, reasons)
-	if err != nil {
-		if llm.Fatal(err) {
+	det := Deterministic(l, f.Env)
+	att := Attempt{N: 1, Line: l, Results: []StageResult{det}}
+	reasons := det.Reasons
+	if det.Passed {
+		jr, err := f.judge(ctx, l)
+		if err != nil {
+			out.Attempts = append(out.Attempts, att)
 			return out, err
 		}
-		out.Final, out.Status = l, "dropped"
-		out.Reason = strings.Join(reasons, "; ") + " | reescrita falhou: " + err.Error()
-		return out, nil
+		att.Results = append(att.Results, jr)
+		reasons = jr.Reasons
+		if jr.Passed {
+			out.Attempts = append(out.Attempts, att)
+			out.Final, out.Status = l, "ok"
+			return out, nil
+		}
 	}
-	// A reescrita mantém quem fala e o tipo.
-	rw.Speaker, rw.Type = l.Speaker, l.Type
-	res2, reasons2, err := f.evaluate(ctx, rw)
-	out.Attempts = append(out.Attempts, Attempt{N: 2, Line: rw, Results: res2})
-	if err != nil {
-		return out, err
+	out.Attempts = append(out.Attempts, att)
+	history := []string{"1ª tentativa: " + strings.Join(reasons, "; ")}
+
+	last := l
+	for n := 1; n <= MaxRewrites; n++ {
+		rw, err := f.Rewriter.Rewrite(ctx, l, last, reasons)
+		if err != nil {
+			if llm.Fatal(err) {
+				return out, err
+			}
+			history = append(history, "reescrita falhou: "+err.Error())
+			break
+		}
+		rw.Speaker, rw.Type = l.Speaker, l.Type // a reescrita mantém quem fala e o tipo
+		det := Deterministic(rw, f.Env)
+		att := Attempt{N: n + 1, Line: rw, Results: []StageResult{det}}
+		if !det.Passed {
+			out.Attempts = append(out.Attempts, att)
+			history = append(history, fmt.Sprintf("%dª tentativa: %s", n+1, strings.Join(det.Reasons, "; ")))
+			last, reasons = rw, det.Reasons
+			continue
+		}
+		jr, err := f.judge(ctx, rw)
+		if err != nil {
+			out.Attempts = append(out.Attempts, att)
+			return out, err
+		}
+		att.Results = append(att.Results, jr)
+		out.Attempts = append(out.Attempts, att)
+		if jr.Passed {
+			out.Final, out.Status = rw, "rewritten"
+			return out, nil
+		}
+		history = append(history, fmt.Sprintf("%dª tentativa: %s", n+1, strings.Join(jr.Reasons, "; ")))
+		last = rw
+		break // o juiz só reavalia uma reescrita
 	}
-	if len(reasons2) == 0 {
-		out.Final, out.Status = rw, "rewritten"
-		return out, nil
-	}
-	out.Final, out.Status = rw, "dropped"
-	out.Reason = "1ª tentativa: " + strings.Join(reasons, "; ") + " | 2ª tentativa: " + strings.Join(reasons2, "; ")
+	out.Final, out.Status = last, "dropped"
+	out.Reason = strings.Join(history, " | ")
 	return out, nil
 }
 
@@ -404,24 +481,25 @@ type Rules struct {
 	ClosingLine      string // se definido, tem de sobreviver como última fala
 }
 
-// Decide devolve approved|rejected e o motivo.
+// Decide devolve approved|rejected e o motivo. Falas removidas pelo passe de
+// continuidade não contam como corte, mas saem da contagem de falas.
 func Decide(outs []Outcome, r Rules) (string, string) {
-	facts, factDropped, remaining := 0, 0, 0
+	factLines, factDropped, remaining := 0, 0, 0
 	lastKept := ""
 	for _, o := range outs {
 		if o.Original.Type == TypeFact {
-			facts++
+			factLines++
 			if o.Status == "dropped" {
 				factDropped++
 			}
 		}
-		if o.Status != "dropped" {
+		if o.Status != "dropped" && o.Status != "removed" {
 			remaining++
 			lastKept = o.Final.Text
 		}
 	}
-	if facts > 0 && float64(factDropped)/float64(facts) > r.MaxFactDropRatio {
-		return "rejected", fmt.Sprintf("%d de %d falas fact cortadas (%.0f%% > %.0f%%)", factDropped, facts, 100*float64(factDropped)/float64(facts), 100*r.MaxFactDropRatio)
+	if factLines > 0 && float64(factDropped)/float64(factLines) > r.MaxFactDropRatio {
+		return "rejected", fmt.Sprintf("%d de %d falas fact cortadas (%.0f%% > %.0f%%)", factDropped, factLines, 100*float64(factDropped)/float64(factLines), 100*r.MaxFactDropRatio)
 	}
 	if remaining < r.MinLines {
 		return "rejected", fmt.Sprintf("restaram %d falas (mínimo %d)", remaining, r.MinLines)

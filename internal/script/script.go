@@ -73,7 +73,8 @@ func (w *Writer) speakers() []string {
 }
 
 // Validate aplica, além do schema, as regras do contrato que dependem de código.
-func (w *Writer) Validate(s *Script, b config.Block) error {
+// fs: fatos da pauta (para a regra do humor).
+func (w *Writer) Validate(s *Script, b config.Block, fs []facts.Fact) error {
 	if s.Block != b.Name {
 		return fmt.Errorf("block %q, esperado %q", s.Block, b.Name)
 	}
@@ -87,8 +88,19 @@ func (w *Writer) Validate(s *Script, b config.Block) error {
 			s.Lines = append(s.Lines, check.Line{Speaker: b.Lead, Type: check.TypeBanter, Text: b.ClosingLine, FactIDs: []int64{}})
 		}
 	}
+	byID := map[int64]facts.Fact{}
+	for _, f := range fs {
+		byID[f.ID] = f
+	}
 	words := 0
 	for i, l := range s.Lines {
+		if b.Name == "humor" && l.Type == check.TypeFact && l.Speaker != "orlando" {
+			for _, id := range l.FactIDs {
+				if f, ok := byID[id]; ok && facts.HasPerson([]facts.Fact{f}) {
+					return fmt.Errorf("fala %d: no humor, fato que cita pessoa é lido pelo Orlando, literalmente", i+1)
+				}
+			}
+		}
 		if l.Type == check.TypeFact && len(l.FactIDs) == 0 {
 			return fmt.Errorf("fala %d é fact e não tem fact_ids", i+1)
 		}
@@ -111,7 +123,9 @@ REGRA INEGOCIÁVEL: nenhuma fala com fato vai ao ar sem uma fonte que a sustente
 
 Tipos de fala:
 - "fact": afirma algo do mundo real. Precisa listar em "fact_ids" os ids dos fatos que a sustentam. Use apenas o que está no texto desses fatos: sem causas, consequências, previsões ou contexto extra. Números escritos com algarismos, exatamente como no fato ou arredondados corretamente (5,2079 pode virar 5,21, nunca 5,20). Só cite pessoas, organizações e lugares que estejam em "entities" dos fatos citados.
-- "banter": comentário, reação, transição ou piada entre os avatares. "fact_ids" vazio. Proibido em banter: números, datas, valores, nomes próprios de pessoas, organizações ou lugares reais, siglas. Os avatares podem chamar um ao outro pelo primeiro nome.
+- "banter": comentário, reação, transição ou piada entre os avatares. "fact_ids" vazio. Proibido em banter: números, datas, valores, nomes de pessoas reais, e qualquer afirmação nova sobre o mundo. Organizações e lugares só se estiverem nos fatos do segmento ou forem nomes comuns (Banco Central, Brasil, São Paulo). Os avatares podem chamar um ao outro pelo nome. Opinião, piada, exagero óbvio e brincadeira sobre os próprios avatares são permitidos.
+- GLOSSÁRIO: fatos de kind "glossary" são definições com fonte oficial. Quando a Duda "traduzir" um termo (Selic, IPCA, frente fria...), a fala é do tipo "fact" e cita o fact_id do glossário. Nunca explique um termo em banter.
+- Cada fala de transição deve fazer sentido sozinha: não prometa algo que depende da fala seguinte ("conta o resto", "vem aí...").
 
 Nunca zombe de pessoas reais. Nunca dê opinião política ou eleitoral. Nunca recomende investimentos.
 Responda apenas com o JSON do contrato, sem texto fora dele.`
@@ -144,6 +158,9 @@ func (w *Writer) prompt(in Input) string {
 		ents, _ := json.Marshal(f.Entities)
 		fmt.Fprintf(&b, "[%d] (%s; fonte: %s) %s | entities: %s\n", f.ID, f.Kind, f.SourceName, f.Claim, ents)
 	}
+	if in.Block.Name == "humor" {
+		b.WriteString("\nREGRA DO HUMOR: se um fato tem entity do tipo \"person\", quem fala é o Orlando, lendo o fato literalmente (type fact), e a piada que vem depois é só sobre a situação, nunca sobre a pessoa.\n")
+	}
 	fmt.Fprintf(&b, "\nCONTRATO (JSON estrito):\n{\"block\":%q,\"lines\":[{\"speaker\":\"orlando\",\"type\":\"fact\",\"text\":\"...\",\"fact_ids\":[123]},{\"speaker\":\"duda\",\"type\":\"banter\",\"text\":\"...\",\"fact_ids\":[]}]}\n", in.Block.Name)
 	return b.String()
 }
@@ -173,7 +190,7 @@ func (w *Writer) Write(ctx context.Context, in Input) (Script, int, error) {
 			lastErr = err
 			continue
 		}
-		if err := w.Validate(&s, in.Block); err != nil {
+		if err := w.Validate(&s, in.Block, in.Facts); err != nil {
 			lastErr = err
 			continue
 		}
@@ -199,20 +216,49 @@ type Rewriter struct {
 	Model string
 	Block config.Block
 	Facts []facts.Fact
+	Allow []string // allowlist relevante (termos que aparecem no segmento + avatares)
 }
 
-func (r *Rewriter) Rewrite(ctx context.Context, l check.Line, reasons []string) (check.Line, error) {
+const rulesFact = `REGRAS DA FALA "fact":
+- Toda afirmação precisa estar no texto dos fatos citados em fact_ids (paráfrase é permitida). Nada de causa, consequência, previsão, comparação ou contexto que não esteja nos fatos.
+- Números com algarismos, exatamente como no fato ou arredondados corretamente (5,2079 → 5,21; nunca 5,20). Sem números que não estejam nos fatos citados.
+- Só cite pessoas, organizações e lugares que estejam em "entities" dos fatos citados, ou na lista de termos permitidos.
+- Pode trocar os fact_ids, desde que sejam ids da lista de fatos.`
+
+const rulesBanter = `REGRAS DA FALA "banter":
+- Nenhum número, data ou valor (nem por extenso).
+- Nenhum nome de pessoa real, nem prenome. Organizações e lugares só os da lista de termos permitidos.
+- Nenhuma afirmação factual nova sobre o mundo: só opinião, reação, piada, exagero óbvio ou brincadeira sobre os próprios avatares.
+- Não zombe de pessoa real nem de grupo real.
+- fact_ids vazio.`
+
+func (r *Rewriter) Rewrite(ctx context.Context, original, last check.Line, reasons []string) (check.Line, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Bloco: %s\nFala reprovada (speaker=%s, type=%s, fact_ids=%v):\n%q\n\nMotivos da reprovação:\n", r.Block.Name, l.Speaker, l.Type, l.FactIDs, l.Text)
+	fmt.Fprintf(&b, "Bloco: %s\nFala original (speaker=%s, type=%s, fact_ids=%v):\n%q\n", r.Block.Name, original.Speaker, original.Type, original.FactIDs, original.Text)
+	if last.Text != original.Text {
+		fmt.Fprintf(&b, "\nÚltima tentativa de reescrita (também reprovada):\n%q\n", last.Text)
+	}
+	b.WriteString("\nMotivos da reprovação:\n")
 	for _, reason := range reasons {
 		fmt.Fprintf(&b, "- %s\n", reason)
 	}
-	b.WriteString("\nFatos disponíveis:\n")
-	for _, f := range r.Facts {
-		ents, _ := json.Marshal(f.Entities)
-		fmt.Fprintf(&b, "[%d] %s | entities: %s\n", f.ID, f.Claim, ents)
+	if original.Type == check.TypeBanter {
+		b.WriteString("\n" + rulesBanter + "\n")
+	} else {
+		b.WriteString("\n" + rulesFact + "\n")
 	}
-	b.WriteString("\nReescreva a fala corrigindo os motivos, mantendo quem fala, o tipo e o tom. Se não houver como sustentar a afirmação, diga menos (é melhor uma fala mais curta e certa). Responda apenas com JSON: {\"text\":\"...\",\"fact_ids\":[...]}")
+	b.WriteString("\nPROIBIDO introduzir nomes de pessoas que não estejam na fala original ou nos fatos citados.\n")
+	if len(r.Allow) > 0 {
+		fmt.Fprintf(&b, "\nTermos permitidos (organizações, lugares, siglas, avatares): %s\n", strings.Join(r.Allow, ", "))
+	}
+	if original.Type == check.TypeFact {
+		b.WriteString("\nFatos disponíveis:\n")
+		for _, f := range r.Facts {
+			ents, _ := json.Marshal(f.Entities)
+			fmt.Fprintf(&b, "[%d] %s | entities: %s\n", f.ID, f.Claim, ents)
+		}
+	}
+	b.WriteString("\nReescreva a fala corrigindo os motivos, mantendo quem fala, o tipo e o tom. Na dúvida, diga menos: uma fala mais curta e certa é melhor. Responda apenas com JSON: {\"text\":\"...\",\"fact_ids\":[...]}")
 	resp, err := r.LLM.Complete(ctx, llm.Request{Purpose: "rewrite", Model: r.Model, System: writerSystem, Prompt: b.String(), MaxTokens: 4000, Effort: "low"})
 	if err != nil {
 		return check.Line{}, err
@@ -224,8 +270,8 @@ func (r *Rewriter) Rewrite(ctx context.Context, l check.Line, reasons []string) 
 	if err := lineSchema.Decode(resp.Text, &out); err != nil {
 		return check.Line{}, err
 	}
-	if l.Type == check.TypeBanter {
+	if original.Type == check.TypeBanter {
 		out.FactIDs = []int64{}
 	}
-	return check.Line{Speaker: l.Speaker, Type: l.Type, Text: out.Text, FactIDs: out.FactIDs}, nil
+	return check.Line{Speaker: original.Speaker, Type: original.Type, Text: out.Text, FactIDs: out.FactIDs}, nil
 }

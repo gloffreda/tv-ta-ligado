@@ -20,6 +20,7 @@ type Run struct {
 	Finished time.Time
 	Err      error
 	Notes    []string
+	Every    map[string]time.Duration // grade (para a projeção diária)
 }
 
 // Write gera um único arquivo por execução: output/relatorio-AAAAMMDD-HHMMSS-<comando>.md.
@@ -92,24 +93,30 @@ func Build(ctx context.Context, st *store.Store, r Run, loc *time.Location, dayS
 	if len(segs) == 0 {
 		f("Nenhum segmento gerado.\n")
 	} else {
-		f("| # | bloco | status | falas | cortadas | reescritas | custo (US$) | motivo |\n|---|---|---|---|---|---|---|---|\n")
+		f("| # | bloco | status | falas | cortadas | taxa de corte | reescritas | removidas (continuidade) | custo (US$) | motivo |\n|---|---|---|---|---|---|---|---|---|---|\n")
 		total := 0.0
 		for _, s := range segs {
-			dropped, rewritten := 0, 0
+			dropped, rewritten, removed := 0, 0, 0
 			for _, l := range s.Lines {
 				switch l.Status {
 				case "dropped":
 					dropped++
 				case "rewritten":
 					rewritten++
+				case "removed":
+					removed++
 				}
+			}
+			rate := 0.0
+			if len(s.Lines) > 0 {
+				rate = 100 * float64(dropped) / float64(len(s.Lines))
 			}
 			reason := ""
 			if s.Reason != nil {
 				reason = strings.ReplaceAll(*s.Reason, "|", "/")
 			}
 			total += s.CostUSD
-			f("| %d | %s | %s | %d | %d | %d | %.4f | %s |\n", s.ID, s.Block, s.Status, len(s.Lines), dropped, rewritten, s.CostUSD, reason)
+			f("| %d | %s | %s | %d | %d | %.1f%% | %d | %d | %.4f | %s |\n", s.ID, s.Block, s.Status, len(s.Lines), dropped, rate, rewritten, removed, s.CostUSD, reason)
 		}
 		f("\nCusto total dos segmentos: US$ %.4f · médio: US$ %.4f\n", total, total/float64(len(segs)))
 		for _, s := range segs {
@@ -145,14 +152,24 @@ func Build(ctx context.Context, st *store.Store, r Run, loc *time.Location, dayS
 	if len(stats) == 0 {
 		f("Sem segmentos ainda.\n")
 	} else {
-		f("| bloco | segmentos | aprovados | falas | cortadas | taxa de corte | reescritas | custo médio (US$) |\n|---|---|---|---|---|---|---|---|\n")
+		f("| bloco | segmentos | aprovados | falas | cortadas | taxa de corte | reescritas | removidas | custo médio (US$) |\n|---|---|---|---|---|---|---|---|---|\n")
 		for _, s := range stats {
 			rate := 0.0
 			if s.Lines > 0 {
 				rate = 100 * float64(s.Dropped) / float64(s.Lines)
 			}
-			f("| %s | %d | %d | %d | %d | %.1f%% | %d | %.4f |\n", s.Block, s.Segments, s.Approved, s.Lines, s.Dropped, rate, s.Rewritten, s.AvgCostUSD)
+			f("| %s | %d | %d | %d | %d | %.1f%% | %d | %d | %.4f |\n", s.Block, s.Segments, s.Approved, s.Lines, s.Dropped, rate, s.Rewritten, s.Removed, s.AvgCostUSD)
 		}
+	}
+
+	live, replay, err := st.AiringCounts(ctx, r.Started)
+	if err != nil {
+		return "", err
+	}
+	f("\n## Exibições nesta execução\n\n- Estreias: %d · Reprises: %d\n", live, replay)
+
+	if err := costSection(ctx, &b, st, r, exArts); err != nil {
+		return "", err
 	}
 
 	spent, err := st.SpentSince(ctx, dayStart)
@@ -173,4 +190,74 @@ func Build(ctx context.Context, st *store.Store, r Run, loc *time.Location, dayS
 		f("Nenhum.\n")
 	}
 	return b.String(), nil
+}
+
+// costSection: custo por segmento, custo de extração por artigo e projeção diária.
+func costSection(ctx context.Context, b *strings.Builder, st *store.Store, r Run, extractedArticles int) error {
+	f := func(format string, a ...any) { fmt.Fprintf(b, format, a...) }
+	byPurpose, err := st.CostSince(ctx, r.Started)
+	if err != nil {
+		return err
+	}
+	blocks, err := st.BlockCosts(ctx, r.Started)
+	if err != nil {
+		return err
+	}
+	f("\n## Custo\n\n")
+	f("| propósito | US$ |\n|---|---|\n")
+	total := 0.0
+	for _, p := range []string{"rundown", "extract", "script", "judge", "rewrite", "continuity", "memory"} {
+		f("| %s | %.4f |\n", p, byPurpose[p])
+		total += byPurpose[p]
+	}
+	f("| **total** | **%.4f** |\n", total)
+	if extractedArticles > 0 {
+		f("\n- Custo de extração por artigo: US$ %.5f (%d artigos)\n", byPurpose["extract"]/float64(extractedArticles), extractedArticles)
+	} else {
+		f("\n- Custo de extração por artigo: sem extrações nesta execução\n")
+	}
+	if len(blocks) == 0 {
+		f("- Sem segmentos para projetar custo.\n")
+		return nil
+	}
+	// Custo por segmento aprovado = custo de todas as tentativas do bloco / aprovados.
+	var allCost float64
+	var allApproved int
+	perBlock := map[string]float64{}
+	f("\n| bloco | tentativas | aprovados | custo por segmento aprovado (US$) |\n|---|---|---|---|\n")
+	for _, bc := range blocks {
+		allCost += bc.TotalUSD
+		allApproved += bc.Approved
+		if bc.Approved > 0 {
+			perBlock[bc.Block] = bc.TotalUSD / float64(bc.Approved)
+			f("| %s | %d | %d | %.4f |\n", bc.Block, bc.Segments, bc.Approved, perBlock[bc.Block])
+		} else {
+			f("| %s | %d | 0 | — |\n", bc.Block, bc.Segments)
+		}
+	}
+	if allApproved == 0 || len(r.Every) == 0 {
+		f("\nProjeção diária: sem segmento aprovado ou sem grade.\n")
+		return nil
+	}
+	avg := allCost / float64(allApproved)
+	project := func(minutes float64) float64 {
+		sum := 0.0
+		for blk, every := range r.Every {
+			c, ok := perBlock[blk]
+			if !ok {
+				c = avg
+			}
+			if every > 0 {
+				sum += minutes / every.Minutes() * c
+			}
+		}
+		return sum
+	}
+	f("\n### Projeção diária (grade atual, um segmento novo a cada `every` de cada bloco, sem reprise)\n\n")
+	f("| cenário | horas no ar | US$/dia | US$/mês (30 dias) |\n|---|---|---|---|\n")
+	full, prime := project(24*60), project(16*60)
+	f("| 24/7 contínuo | 24 | %.2f | %.2f |\n", full, full*30)
+	f("| só horário nobre (7h–23h) | 16 | %.2f | %.2f |\n", prime, prime*30)
+	f("\nBlocos sem segmento aprovado nesta execução usam o custo médio (US$ %.4f). A extração está incluída no custo do segmento (é feita só para as matérias da pauta).\n", avg)
+	return nil
 }

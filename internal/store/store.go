@@ -172,7 +172,10 @@ func (s *Store) ArticlesByIDs(ctx context.Context, ids []int64) ([]Article, erro
 
 // UpsertFact grava o fato; se o mesmo dado já existe, renova a validade.
 func (s *Store) UpsertFact(ctx context.Context, f facts.Fact) (int64, error) {
-	ents, _ := json.Marshal(nonNil(f.Entities))
+	if f.Entities == nil {
+		f.Entities = []facts.Entity{}
+	}
+	ents, _ := json.Marshal(f.Entities)
 	var id int64
 	err := s.DB.QueryRow(ctx, `
 		INSERT INTO facts(article_id, kind, claim, entities, value, unit, as_of, source_name, source_url, series, expires_at, fingerprint)
@@ -186,13 +189,6 @@ func (s *Store) UpsertFact(ctx context.Context, f facts.Fact) (int64, error) {
 func nonNilIDs(s []int64) []int64 {
 	if s == nil {
 		return []int64{}
-	}
-	return s
-}
-
-func nonNil(s []string) []string {
-	if s == nil {
-		return []string{}
 	}
 	return s
 }
@@ -330,17 +326,21 @@ func (s *Store) LatestFactsByKind(ctx context.Context, kind facts.Kind, now time
 	return scanFacts(rows)
 }
 
-// AllEntities: todas as entidades conhecidas no banco (para barrar nomes reais).
-func (s *Store) AllEntities(ctx context.Context) ([]string, error) {
-	rows, err := s.DB.Query(ctx, `SELECT DISTINCT jsonb_array_elements_text(entities) FROM facts`)
+// AllEntities: todas as entidades conhecidas no banco, com tipo (para barrar pessoas reais).
+func (s *Store) AllEntities(ctx context.Context) ([]facts.Entity, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT DISTINCT
+		  CASE WHEN jsonb_typeof(e) = 'string' THEN e #>> '{}' ELSE e ->> 'name' END,
+		  CASE WHEN jsonb_typeof(e) = 'string' THEN '' ELSE COALESCE(e ->> 'type', '') END
+		FROM facts, jsonb_array_elements(entities) e`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []facts.Entity
 	for rows.Next() {
-		var e string
-		if err := rows.Scan(&e); err != nil {
+		var e facts.Entity
+		if err := rows.Scan(&e.Name, &e.Type); err != nil {
 			return nil, err
 		}
 		out = append(out, e)
@@ -654,6 +654,7 @@ type BlockStats struct {
 	Lines      int
 	Dropped    int
 	Rewritten  int
+	Removed    int
 	AvgCostUSD float64
 }
 
@@ -661,6 +662,7 @@ func (s *Store) Stats(ctx context.Context) ([]BlockStats, error) {
 	rows, err := s.DB.Query(ctx, `
 		SELECT s.block, count(DISTINCT s.id), count(DISTINCT s.id) FILTER (WHERE s.status='approved'),
 		       count(l.id), count(l.id) FILTER (WHERE l.status='dropped'), count(l.id) FILTER (WHERE l.status='rewritten'),
+		       count(l.id) FILTER (WHERE l.status='removed'),
 		       COALESCE((SELECT avg(cost_usd)::float8 FROM segments s2 WHERE s2.block=s.block AND s2.status<>'draft'),0)
 		FROM segments s LEFT JOIN lines l ON l.segment_id=s.id
 		WHERE s.status<>'draft'
@@ -672,7 +674,7 @@ func (s *Store) Stats(ctx context.Context) ([]BlockStats, error) {
 	var out []BlockStats
 	for rows.Next() {
 		var b BlockStats
-		if err := rows.Scan(&b.Block, &b.Segments, &b.Approved, &b.Lines, &b.Dropped, &b.Rewritten, &b.AvgCostUSD); err != nil {
+		if err := rows.Scan(&b.Block, &b.Segments, &b.Approved, &b.Lines, &b.Dropped, &b.Rewritten, &b.Removed, &b.AvgCostUSD); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -734,4 +736,101 @@ func (s *Store) EventsSince(ctx context.Context, t time.Time) ([]EventView, erro
 func (s *Store) IngestCounts(ctx context.Context, t time.Time) (articles, facts int, err error) {
 	err = s.DB.QueryRow(ctx, `SELECT (SELECT count(*) FROM articles WHERE fetched_at >= $1), (SELECT count(*) FROM facts WHERE created_at >= $1)`, t).Scan(&articles, &facts)
 	return
+}
+
+// ---- exibições (estreia e reprise) ----
+
+// Air registra uma exibição do segmento: 'live' (estreia) ou 'replay'.
+func (s *Store) Air(ctx context.Context, segmentID int64, block, kind string) error {
+	_, err := s.DB.Exec(ctx, `INSERT INTO airings(segment_id, block, kind) VALUES ($1,$2,$3)`, segmentID, block, kind)
+	return err
+}
+
+// LastAiringAt: última exibição (estreia ou reprise) do bloco.
+func (s *Store) LastAiringAt(ctx context.Context, block string) (time.Time, bool, error) {
+	var t *time.Time
+	err := s.DB.QueryRow(ctx, `SELECT max(aired_at) FROM airings WHERE block=$1`, block).Scan(&t)
+	if err != nil || t == nil {
+		return time.Time{}, false, err
+	}
+	return *t, true, nil
+}
+
+// ReplayCandidate: segmento aprovado do bloco criado desde since, cujos fatos
+// citados continuam válidos, exibido há mais tempo (e menos vezes).
+func (s *Store) ReplayCandidate(ctx context.Context, block string, since, now time.Time) (int64, bool, error) {
+	var id int64
+	err := s.DB.QueryRow(ctx, `
+		SELECT sg.id FROM segments sg
+		WHERE sg.block=$1 AND sg.status='approved' AND sg.created_at >= $2
+		  AND NOT EXISTS (
+		    SELECT 1 FROM lines l JOIN line_claims lc ON lc.line_id=l.id JOIN facts f ON f.id=lc.fact_id
+		    WHERE l.segment_id=sg.id AND l.status IN ('ok','rewritten') AND f.expires_at <= $3)
+		ORDER BY (SELECT max(aired_at) FROM airings a WHERE a.segment_id=sg.id) NULLS FIRST,
+		         (SELECT count(*) FROM airings a WHERE a.segment_id=sg.id), sg.id DESC
+		LIMIT 1`, block, since, now).Scan(&id)
+	if err == pgx.ErrNoRows {
+		return 0, false, nil
+	}
+	return id, err == nil, err
+}
+
+// AiringCounts: estreias e reprises desde t.
+func (s *Store) AiringCounts(ctx context.Context, t time.Time) (live, replay int, err error) {
+	err = s.DB.QueryRow(ctx, `SELECT count(*) FILTER (WHERE kind='live'), count(*) FILTER (WHERE kind='replay') FROM airings WHERE aired_at >= $1`, t).Scan(&live, &replay)
+	return
+}
+
+// ExpireSeries encerra a validade de uma série (ex.: termo de glossário cuja fonte caiu).
+func (s *Store) ExpireSeries(ctx context.Context, series string) error {
+	_, err := s.DB.Exec(ctx, `UPDATE facts SET expires_at=now() WHERE series=$1 AND expires_at > now()`, series)
+	return err
+}
+
+// ---- custos para o relatório ----
+
+// CostSince: custo de LLM por propósito desde t.
+func (s *Store) CostSince(ctx context.Context, t time.Time) (map[string]float64, error) {
+	rows, err := s.DB.Query(ctx, `SELECT purpose, COALESCE(sum(cost_usd),0)::float8 FROM llm_calls WHERE created_at >= $1 GROUP BY purpose`, t)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]float64{}
+	for rows.Next() {
+		var p string
+		var v float64
+		if err := rows.Scan(&p, &v); err != nil {
+			return nil, err
+		}
+		out[p] = v
+	}
+	return out, rows.Err()
+}
+
+// BlockCost: custo total e segmentos aprovados por bloco desde t (segmentos fechados).
+type BlockCost struct {
+	Block    string
+	Segments int
+	Approved int
+	TotalUSD float64
+}
+
+func (s *Store) BlockCosts(ctx context.Context, t time.Time) ([]BlockCost, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT block, count(*), count(*) FILTER (WHERE status='approved'), COALESCE(sum(cost_usd),0)::float8
+		FROM segments WHERE created_at >= $1 AND status <> 'draft' GROUP BY block ORDER BY block`, t)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BlockCost
+	for rows.Next() {
+		var b BlockCost
+		if err := rows.Scan(&b.Block, &b.Segments, &b.Approved, &b.TotalUSD); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }

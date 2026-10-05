@@ -140,7 +140,12 @@ func recorded(t *testing.T, fx fixture) *llm.Mock {
 			}
 			return testfix.LLM(t, "rewrite_iluminacao.json"), nil
 		case "judge":
+			if strings.Contains(r.Prompt, "Fala (banter)") {
+				return testfix.LLM(t, "judge_banter_ok.json"), nil
+			}
 			return testfix.LLM(t, "judge_ok.json"), nil
+		case "continuity":
+			return testfix.LLM(t, "continuity.json"), nil
 		case "memory":
 			return testfix.LLM(t, "memory.json"), nil
 		}
@@ -181,13 +186,30 @@ func TestGenerateEndToEnd(t *testing.T) {
 	if l := byseq[14]; l.Status != "dropped" || l.RejectReason == nil || !strings.Contains(*l.RejectReason, "inexistente") {
 		t.Fatalf("fala 14 deveria ter sido cortada: %+v", l)
 	}
+	// Continuidade: só remove/encurta banter; nunca acrescenta; nunca mexe na última fala.
+	if l := byseq[11]; l.Text != "Agora, a previsão do tempo." || l.OriginalText == nil {
+		t.Fatalf("fala 11 deveria ter sido encurtada: %+v", l)
+	}
+	if l := byseq[3]; strings.Contains(l.Text, "demais") {
+		t.Fatalf("encurtamento que acrescenta palavra não pode ser aceito: %q", l.Text)
+	}
+	if l := byseq[9]; l.Status != "removed" {
+		t.Fatalf("fala 9 deveria ter sido removida pela continuidade: %+v", l)
+	}
+	if l := byseq[16]; l.Status == "removed" {
+		t.Fatal("a última fala não pode ser removida")
+	}
+	if l := byseq[2]; l.Status == "removed" {
+		t.Fatal("fala fact não pode ser removida pela continuidade")
+	}
 	for _, l := range seg.Lines {
 		if l.Type == "fact" && l.Status != "dropped" && len(l.Sources) == 0 {
 			t.Fatalf("fala fact %d sem fonte", l.Seq)
 		}
 	}
-	if mock.CallsFor("rewrite") != 2 {
-		t.Fatalf("reescritas=%d, want 2", mock.CallsFor("rewrite"))
+	// Fala 10: 1 reescrita. Fala 14: 2 reescritas, ambas barradas no estágio 1.
+	if mock.CallsFor("rewrite") != 3 {
+		t.Fatalf("reescritas=%d, want 3", mock.CallsFor("rewrite"))
 	}
 
 	// O fato com número inventado ("4 faixas", "R$ 50 milhões") foi descartado.
@@ -200,7 +222,7 @@ func TestGenerateEndToEnd(t *testing.T) {
 	// check_log: cada fala passou pelo determinístico; as aprovadas pelo juiz.
 	var logs, judges int
 	_ = st.DB.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE stage='judge') FROM check_log`).Scan(&logs, &judges)
-	if logs < 16 || judges < 14 {
+	if logs < 16 || judges < 13 {
 		t.Fatalf("check_log=%d juiz=%d", logs, judges)
 	}
 
@@ -213,6 +235,11 @@ func TestGenerateEndToEnd(t *testing.T) {
 	}
 	if seg.CostUSD <= 0 || absf(seg.CostUSD-sum) > 1e-6 {
 		t.Fatalf("custo do segmento %.6f != soma %.6f", seg.CostUSD, sum)
+	}
+
+	// Exibição: estreia registrada.
+	if live, _, _ := st.AiringCounts(ctx, time.Time{}); live != 1 {
+		t.Fatalf("estreias=%d", live)
 	}
 
 	// Memória: a que cita pessoa real é descartada.
@@ -267,91 +294,113 @@ func TestReportAfterRun(t *testing.T) {
 	}
 }
 
-func TestExtractPendingIgnoresGenerateOff(t *testing.T) {
+func TestLazyExtractionOnlyChosenArticles(t *testing.T) {
 	st := testStore(t)
 	fx := seed(t, st)
 	mock := recorded(t, fx)
-	env := testEnv()
-	env.Generate = false
-	p, _ := newPipeline(st, mock, env, testfix.Now)
-	r, err := p.ExtractPending(context.Background(), ExtractLimit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r.Articles != 2 || r.Extracted != 7 || r.Kept != 6 || mock.CallsFor("extract") != 2 {
-		t.Fatalf("relatório=%+v chamadas=%d", r, mock.CallsFor("extract"))
-	}
-	// Segunda rodada não reprocessa.
-	if r2, _ := p.ExtractPending(context.Background(), ExtractLimit); r2.Articles != 0 || mock.CallsFor("extract") != 2 {
-		t.Fatalf("artigos já processados não podem ser reextraídos: %+v", r2)
-	}
-}
-
-func TestExtractPendingLimitAndOrder(t *testing.T) {
-	st := testStore(t)
-	ctx := context.Background()
-	src, _ := st.UpsertSource(ctx, "Agência Fictícia", "rss", "https://exemplo.invalid/rss", "cc-by")
-	for i := 0; i < 45; i++ {
-		pub := testfix.Now.Add(-time.Duration(i) * time.Minute)
-		_, _ = st.InsertArticle(ctx, store.Article{SourceID: src, URL: fmt.Sprintf("https://exemplo.invalid/n%d", i), Title: fmt.Sprintf("Notícia %d", i), TitleHash: fmt.Sprint(i), Summary: "Texto sem números.", PublishedAt: &pub})
-	}
-	mock := llm.NewMock(nil)
-	var order []string
+	inner := mock.Handler
 	mock.Handler = func(r llm.Request) (string, error) {
-		order = append(order, r.Prompt)
-		return `{"facts":[]}`, nil
+		if r.Purpose == "rundown" {
+			if strings.Contains(r.Prompt, "filhote pesa") || strings.Contains(r.Prompt, "A prefeita Marta Quintela inaugurou") {
+				t.Error("a pauta escolhe pelo título: resumo e corpo não vão ao prompt")
+			}
+			return fmt.Sprintf(`{"article_ids":[%d]}`, fx.articles["a1"]), nil
+		}
+		return inner(r)
 	}
 	p, _ := newPipeline(st, mock, testEnv(), testfix.Now)
-	r, _ := p.ExtractPending(ctx, ExtractLimit)
-	if r.Articles != 40 || len(order) != 40 {
-		t.Fatalf("limite de 40 por ciclo: %+v", r)
-	}
-	if !strings.Contains(order[0], "Notícia 0\n") || !strings.Contains(order[39], "Notícia 39\n") {
-		t.Fatal("mais recentes primeiro")
-	}
-}
-
-func TestExtractPendingErrorsAreReported(t *testing.T) {
-	st := testStore(t)
-	fx := seed(t, st)
-	_ = fx
-	mock := llm.NewMock(nil)
-	mock.Handler = func(r llm.Request) (string, error) { return "", llm.ErrNoAPIKey }
-	p, _ := newPipeline(st, mock, testEnv(), testfix.Now)
-	started := time.Now().Add(-time.Second)
-	r, err := p.ExtractPending(context.Background(), ExtractLimit)
-	if err != nil {
+	if _, err := p.Draft(context.Background(), "noticias"); err != nil {
 		t.Fatal(err)
 	}
-	if r.Failed != 1 || r.Stopped == "" {
-		t.Fatalf("chave ausente deve parar o ciclo na 1ª falha: %+v", r)
-	}
-	md, _ := report.Build(context.Background(), st, report.Run{Command: "ingest", Started: started, Finished: time.Now()}, testfix.Loc(), started)
-	if !strings.Contains(md, "extract_failed") || !strings.Contains(md, "ANTHROPIC_API_KEY ausente") {
-		t.Fatalf("erro de LLM deve aparecer nos Avisos:\n%s", md)
+	if mock.CallsFor("extract") != 1 {
+		t.Fatalf("só a matéria escolhida é extraída; extrações=%d", mock.CallsFor("extract"))
 	}
 	var pending int
 	_ = st.DB.QueryRow(context.Background(), `SELECT count(*) FROM articles WHERE facts_extracted_at IS NULL`).Scan(&pending)
-	if pending != 2 {
-		t.Fatal("artigo com falha deve continuar pendente para a próxima rodada")
+	if pending != 1 {
+		t.Fatalf("a matéria não escolhida continua sem extração: %d", pending)
 	}
 }
 
-func TestExtractPendingBlackoutAndBudget(t *testing.T) {
+func TestHealthNewsExcluded(t *testing.T) {
 	st := testStore(t)
 	fx := seed(t, st)
+	ctx := context.Background()
+	src, _ := st.UpsertSource(ctx, "Portal", "rss", "https://exemplo.invalid/rss2", "none")
+	pub := testfix.Now.Add(-time.Hour)
+	_, _ = st.InsertArticle(ctx, store.Article{SourceID: src, URL: "https://exemplo.invalid/equilibrioesaude/x", Title: "Cinco hábitos para dormir melhor", TitleHash: "h1", PublishedAt: &pub})
+	_, _ = st.InsertArticle(ctx, store.Article{SourceID: src, URL: "https://exemplo.invalid/y", Title: "Novo sintoma preocupa médicos", TitleHash: "h2", PublishedAt: &pub})
 	mock := recorded(t, fx)
-	inside := time.Date(2026, 10, 25, 12, 0, 0, 0, testfix.Loc())
-	p, _ := newPipeline(st, mock, testEnv(), inside)
-	if r, _ := p.ExtractPending(context.Background(), ExtractLimit); r.Stopped == "" || len(mock.Calls) != 0 {
-		t.Fatalf("bloqueio eleitoral pausa a extração: %+v", r)
+	inner := mock.Handler
+	mock.Handler = func(r llm.Request) (string, error) {
+		if r.Purpose == "rundown" && (strings.Contains(r.Prompt, "dormir") || strings.Contains(r.Prompt, "sintoma")) {
+			t.Error("saúde não pode chegar à pauta")
+		}
+		return inner(r)
 	}
-	env := testEnv()
-	env.MaxDailyUSD = 0.001 // cada chamada custa US$ 0,002
-	p2, _ := newPipeline(st, mock, env, testfix.Now)
-	r, _ := p2.ExtractPending(context.Background(), ExtractLimit)
-	if len(mock.Calls) != 1 || !strings.Contains(r.Stopped, "teto") {
-		t.Fatalf("teto diário para a extração: %+v chamadas=%d", r, len(mock.Calls))
+	p, _ := newPipeline(st, mock, testEnv(), testfix.Now)
+	if _, err := p.Draft(ctx, "noticias"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestGlossaryJoinsRundown(t *testing.T) {
+	st := testStore(t)
+	fx := seed(t, st)
+	ctx := context.Background()
+	// "Selic" aparece no fato de mercado da economia; o termo entra na pauta.
+	sel := testfix.FactMap(t)[2]
+	if _, err := st.UpsertFact(ctx, sel); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.UpsertFact(ctx, facts.Fact{Kind: facts.Glossary, Claim: "A taxa Selic é a taxa básica de juros da economia.", AsOf: testfix.Now,
+		SourceName: "Banco Central do Brasil", SourceURL: "https://www.bcb.gov.br/controleinflacao/taxaselic", Series: GlossarySeries("Selic"), ExpiresAt: facts.NoExpiry,
+		Entities: []facts.Entity{{Name: "Selic", Type: facts.Other}}}); err != nil {
+		t.Fatal(err)
+	}
+	mock := recorded(t, fx)
+	inner := mock.Handler
+	var scriptPrompt string
+	mock.Handler = func(r llm.Request) (string, error) {
+		if r.Purpose == "script" {
+			scriptPrompt = r.Prompt
+			return "{}", nil
+		}
+		return inner(r)
+	}
+	p, _ := newPipeline(st, mock, testEnv(), testfix.Now)
+	_, _ = p.Draft(ctx, "economia")
+	if !strings.Contains(scriptPrompt, "(glossary; fonte: Banco Central do Brasil) A taxa Selic é a taxa básica de juros") {
+		t.Fatalf("o roteirista deveria receber o termo Selic do glossário:\n%s", scriptPrompt)
+	}
+	if strings.Contains(scriptPrompt, "frente fria") {
+		t.Fatal("termo irrelevante não entra")
+	}
+}
+
+func TestReplayWhenIdle(t *testing.T) {
+	st := testStore(t)
+	fx := seed(t, st)
+	ctx := context.Background()
+	p, _ := newPipeline(st, recorded(t, fx), testEnv(), testfix.Now)
+	res, err := p.Generate(ctx, "noticias")
+	if err != nil || res.Status != "approved" {
+		t.Fatalf("%+v %v", res, err)
+	}
+	later, _ := newPipeline(st, llm.NewMock(nil), testEnv(), testfix.Now.Add(time.Hour))
+	id, err := later.Replay(ctx, "noticias", 6*time.Hour)
+	if err != nil || id != res.SegmentID {
+		t.Fatalf("deveria reprisar o segmento %d: %d %v", res.SegmentID, id, err)
+	}
+	live, replay, _ := st.AiringCounts(ctx, time.Time{})
+	if live != 1 || replay != 1 {
+		t.Fatalf("estreias=%d reprises=%d", live, replay)
+	}
+	// created_at vem do relógio do banco: envelhece o segmento para sair da janela.
+	_, _ = st.DB.Exec(ctx, `UPDATE segments SET created_at = $1`, testfix.Now.Add(-7*time.Hour))
+	tooLate, _ := newPipeline(st, llm.NewMock(nil), testEnv(), testfix.Now)
+	if id, _ := tooLate.Replay(ctx, "noticias", 6*time.Hour); id != 0 {
+		t.Fatal("fora da janela de 6h não há reprise")
 	}
 }
 

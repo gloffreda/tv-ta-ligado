@@ -33,7 +33,8 @@ import (
 const usage = `uso: tvtl <comando> [opções]
 
   migrate                     aplica migrações
-  ingest                      uma rodada de ingestão (RSS, BCB, clima)
+  ingest                      uma rodada de ingestão (RSS, BCB, clima), sem LLM
+  glossary                    valida as fontes e carrega config/glossary.yaml
   feeds-check                 valida as URLs de config/feeds.yaml
   rundown  --block B          mostra a pauta que seria montada (não grava)
   write    --block B          pauta + fatos + roteiro; grava segmento draft
@@ -140,7 +141,7 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 
 	// Comandos que usam LLM falham já no início, antes de ingerir, se não há chave.
 	switch cmd {
-	case "ingest", "run", "rundown", "write", "check", "generate":
+	case "ingest", "run", "rundown", "write", "check", "generate", "glossary":
 		if a.env.AnthropicAPIKey == "" {
 			return fmt.Errorf("ANTHROPIC_API_KEY ausente: defina a chave no .env (veja .env.example) e rode de novo; o comando %q não foi executado", cmd)
 		}
@@ -158,6 +159,12 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 }
 
 func (a *app) writeReport(r report.Run) {
+	if sched, err := config.LoadSchedule(a.env.ConfigDir); err == nil {
+		r.Every = map[string]time.Duration{}
+		for _, b := range sched.Blocks {
+			r.Every[b.Name] = b.Every.Duration
+		}
+	}
 	now := r.Finished.In(a.env.Location)
 	day := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, a.env.Location)
 	path, err := report.Write(context.Background(), a.env.OutputDir, a.store, r, a.env.Location, day)
@@ -181,7 +188,13 @@ func (a *app) exec(ctx context.Context, cmd, blockName string, segment int64, la
 		if err != nil {
 			return err
 		}
-		a.ingestAndExtract(ctx, in, a.pipeline())
+		a.ingestOnce(ctx, in)
+	case "glossary":
+		in, err := a.ingester()
+		if err != nil {
+			return err
+		}
+		return a.loadGlossary(ctx, in)
 	case "rundown":
 		return a.showRundown(ctx, blockName)
 	case "write":
@@ -249,15 +262,25 @@ func (a *app) showRundown(ctx context.Context, blockName string) error {
 	return nil
 }
 
-// ingestAndExtract: uma rodada de ingestão seguida da extração de fatos dos
-// artigos pendentes (até 40, mais recentes primeiro).
-func (a *app) ingestAndExtract(ctx context.Context, in *ingest.Ingester, p *pipeline.Pipeline) {
+// ingestOnce: uma rodada de ingestão. Sem LLM: guarda título, resumo e (CC BY)
+// corpo; os fatos são extraídos só das matérias que a pauta escolher.
+func (a *app) ingestOnce(ctx context.Context, in *ingest.Ingester) {
 	r := in.RunOnce(ctx)
 	slog.Info("ingestão", "artigos_novos", r.Articles, "duplicados", r.Duplicates, "mercado", r.MarketFacts, "clima", r.WeatherFacts, "falhas", len(r.Failures))
-	if _, err := p.ExtractPending(ctx, pipeline.ExtractLimit); err != nil {
-		slog.Error("extração", "erro", err)
-		_ = a.store.Event(context.WithoutCancel(ctx), "extract_failed", map[string]string{"error": err.Error()})
+}
+
+// loadGlossary valida as fontes e grava o glossário.
+func (a *app) loadGlossary(ctx context.Context, in *ingest.Ingester) error {
+	terms, err := config.LoadGlossary(a.env.ConfigDir)
+	if err != nil {
+		return err
 	}
+	r := in.LoadGlossary(ctx, terms, pipeline.GlossarySeries)
+	slog.Info("glossário", "carregados", len(r.Loaded), "fora", len(r.Rejected))
+	for t, why := range r.Rejected {
+		slog.Warn("glossário: termo fora", "termo", t, "motivo", why)
+	}
+	return nil
 }
 
 // run é o loop principal.
@@ -270,10 +293,14 @@ func (a *app) run(ctx context.Context) error {
 		return err
 	}
 	slog.Info("tvtl run", "ingestao_a_cada", a.env.IngestInterval, "generate", a.env.Generate, "teto_usd_dia", a.env.MaxDailyUSD,
+		"replay_when_idle", a.env.ReplayWhenIdle, "viewers", a.env.Viewers,
 		"model_fast", a.env.ModelFast, "model_smart", a.env.ModelSmart)
 
 	p := a.pipeline()
-	doIngest := func() { a.ingestAndExtract(ctx, in, p) }
+	if err := a.loadGlossary(ctx, in); err != nil {
+		slog.Warn("glossário não carregado", "erro", err)
+	}
+	doIngest := func() { a.ingestOnce(ctx, in) }
 	doIngest()
 	ingestT := time.NewTicker(a.env.IngestInterval)
 	defer ingestT.Stop()
@@ -315,12 +342,25 @@ func (a *app) generateDue(ctx context.Context, p *pipeline.Pipeline) (n int) {
 		if ctx.Err() != nil {
 			return n
 		}
-		lastOK, okFound, err := a.store.LastSegmentAt(ctx, b.Name, "approved")
+		lastAir, aired, err := a.store.LastAiringAt(ctx, b.Name)
 		if err != nil {
 			slog.Error("agenda", "erro", err)
 			return n
 		}
-		if okFound && now.Sub(lastOK) < b.Every.Duration {
+		if aired && now.Sub(lastAir) < b.Every.Duration {
+			continue
+		}
+		// Sem audiência: reprisa em vez de gerar (custo zero).
+		if a.env.ReplayWhenIdle && a.env.Viewers == 0 {
+			id, err := p.Replay(ctx, b.Name, a.env.ReplayWindow)
+			switch {
+			case err != nil:
+				slog.Error("reprise", "bloco", b.Name, "erro", err)
+			case id == 0:
+				slog.Info("sem audiência e nada a reprisar", "bloco", b.Name, "janela", a.env.ReplayWindow)
+			default:
+				slog.Info("reprise", "bloco", b.Name, "segmento", id)
+			}
 			continue
 		}
 		lastTry, tryFound, _ := a.store.LastSegmentAt(ctx, b.Name, "rejected", "draft")

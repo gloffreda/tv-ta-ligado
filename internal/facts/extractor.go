@@ -37,12 +37,12 @@ Regras:
 - Use SOMENTE o texto fornecido. Não acrescente contexto, causas nem conhecimento próprio.
 - Cada fato é uma afirmação verificável, curta, em português, que possa ser lida no ar.
 - Copie números, datas e valores exatamente como aparecem no texto (mesmo formato, mesmas casas decimais).
-- "entities": todas as pessoas, organizações, siglas e lugares citados no fato, escritos exatamente como no texto.
+- "entities": todas as pessoas, organizações, siglas e lugares citados no fato, escritos exatamente como no texto, cada um com "type": "person" (pessoa real), "org" (organização, órgão, empresa, partido, time), "place" (lugar) ou "other" (índice, evento, programa, produto). Palavras comuns em minúsculas não são entidades.
 - "value": o principal número do fato, como número JSON (ex.: 5,43 vira 5.43; 2 bilhões vira 2000000000); null se não houver.
 - "unit": unidade do value ("%", "BRL", "USD", "pessoas"...) ou "".
 - No máximo 4 fatos, priorizando os mais importantes.
 
-Responda apenas com JSON: {"facts":[{"claim":"...","entities":["..."],"value":null,"unit":""}]}`
+Responda apenas com JSON: {"facts":[{"claim":"...","entities":[{"name":"...","type":"person"}],"value":null,"unit":""}]}`
 
 type Extractor struct {
 	LLM   llm.Client

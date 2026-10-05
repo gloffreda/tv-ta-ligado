@@ -11,13 +11,13 @@ func TestValidate(t *testing.T) {
 		c    Candidate
 		ok   bool
 	}{
-		{"ok", Candidate{Claim: "A arrecadação federal somou R$ 210,5 bilhões em setembro, segundo Fernando Haddad.", Entities: []string{"Fernando Haddad"}, Value: f64(210.5e9)}, true},
+		{"ok", Candidate{Claim: "A arrecadação federal somou R$ 210,5 bilhões em setembro, segundo Fernando Haddad.", Entities: []Entity{{"Fernando Haddad", Person}}, Value: f64(210.5e9)}, true},
 		{"percentual ok", Candidate{Claim: "A arrecadação teve alta de 3,2% sobre 2025.", Value: f64(3.2), Unit: "%"}, true},
 		{"número inventado", Candidate{Claim: "A arrecadação somou R$ 215 bilhões.", Entities: nil}, false},
 		{"número arredondado", Candidate{Claim: "A arrecadação teve alta de 3% sobre 2025."}, false},
 		{"value fora da fonte", Candidate{Claim: "A arrecadação federal cresceu.", Value: f64(4.1)}, false},
-		{"entidade fora da fonte", Candidate{Claim: "Lula comentou a arrecadação.", Entities: []string{"Lula"}}, false},
-		{"entidade com acento diferente", Candidate{Claim: "Haddad falou sobre arrecadação.", Entities: []string{"fernando haddad"}}, true},
+		{"entidade fora da fonte", Candidate{Claim: "Lula comentou a arrecadação.", Entities: []Entity{{"Lula", Person}}}, false},
+		{"entidade com acento diferente", Candidate{Claim: "Haddad falou sobre arrecadação.", Entities: []Entity{{"fernando haddad", Person}}}, true},
 	}
 	for _, c := range cases {
 		err := Validate(c.c, src)

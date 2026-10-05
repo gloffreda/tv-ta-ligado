@@ -1,6 +1,50 @@
-{"facts": [
-  {"claim": "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", "entities": ["Marta Quintela", "rio Claro", "Vila Serena"], "value": 1250, "unit": "metros"},
-  {"claim": "A ponte sobre o rio Claro custou R$ 48,6 milhões, segundo a prefeitura de Vila Serena.", "entities": ["rio Claro", "Vila Serena"], "value": 48600000, "unit": "BRL"},
-  {"claim": "A ponte deve atender 30 mil motoristas por dia.", "entities": [], "value": 30000, "unit": "motoristas"},
-  {"claim": "A ponte tem 4 faixas e custou R$ 50 milhões.", "entities": [], "value": 50000000, "unit": "BRL"}
-]}
+{
+ "facts": [
+  {
+   "claim": "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.",
+   "entities": [
+    {
+     "name": "Marta Quintela",
+     "type": "person"
+    },
+    {
+     "name": "rio Claro",
+     "type": "place"
+    },
+    {
+     "name": "Vila Serena",
+     "type": "place"
+    }
+   ],
+   "value": 1250,
+   "unit": "metros"
+  },
+  {
+   "claim": "A ponte sobre o rio Claro custou R$ 48,6 milhões, segundo a prefeitura de Vila Serena.",
+   "entities": [
+    {
+     "name": "rio Claro",
+     "type": "place"
+    },
+    {
+     "name": "Vila Serena",
+     "type": "place"
+    }
+   ],
+   "value": 48600000,
+   "unit": "BRL"
+  },
+  {
+   "claim": "A ponte deve atender 30 mil motoristas por dia.",
+   "entities": [],
+   "value": 30000,
+   "unit": "motoristas"
+  },
+  {
+   "claim": "A ponte tem 4 faixas e custou R$ 50 milhões.",
+   "entities": [],
+   "value": 50000000,
+   "unit": "BRL"
+  }
+ ]
+}

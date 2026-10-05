@@ -27,6 +27,9 @@ type Env struct {
 	MemoryHalfLife  float64 // dias
 	UserAgent       string
 	OutputDir       string
+	ReplayWhenIdle  bool          // REPLAY_WHEN_IDLE
+	Viewers         int           // VIEWERS (no Sprint 3 vira a contagem real)
+	ReplayWindow    time.Duration // REPLAY_WINDOW
 }
 
 // Price em dólares por milhão de tokens.
@@ -79,6 +82,19 @@ func LoadEnv() (Env, error) {
 		return e, err
 	}
 	e.OutputDir = get("TVTL_OUTPUT_DIR", "output")
+	switch strings.ToLower(get("REPLAY_WHEN_IDLE", "off")) {
+	case "on", "true", "1":
+		e.ReplayWhenIdle = true
+	case "off", "false", "0":
+	default:
+		return e, fmt.Errorf("REPLAY_WHEN_IDLE deve ser on|off")
+	}
+	if e.Viewers, err = strconv.Atoi(get("VIEWERS", "1")); err != nil {
+		return e, fmt.Errorf("VIEWERS: %w", err)
+	}
+	if e.ReplayWindow, err = time.ParseDuration(get("REPLAY_WINDOW", "6h")); err != nil {
+		return e, fmt.Errorf("REPLAY_WINDOW: %w", err)
+	}
 	e.UserAgent = get("HTTP_USER_AGENT", "tvtl/0.1 (+https://github.com/gloffreda/tv-ta-ligado)")
 	return e, nil
 }
@@ -145,9 +161,16 @@ type Capital struct {
 
 type Schedule struct {
 	RetryAfter Duration     `yaml:"retry_after"`
+	Exclude    ExcludeRules `yaml:"exclude"`
 	Segment    SegmentRules `yaml:"segment"`
 	Check      CheckRules   `yaml:"check"`
 	Blocks     []Block      `yaml:"blocks"`
+}
+
+// ExcludeRules: temas fora do brief (por ora, saúde).
+type ExcludeRules struct {
+	URLParts []string `yaml:"url_parts"`
+	Keywords []string `yaml:"keywords"`
 }
 
 type SegmentRules struct {
@@ -298,4 +321,53 @@ func LoadPersonas(dir string) (map[string]Persona, error) {
 		return nil, fmt.Errorf("nenhuma persona em %s/personas", dir)
 	}
 	return out, nil
+}
+
+// LoadAllowlist achata as categorias de config/allowlist.yaml.
+func LoadAllowlist(dir string) ([]string, error) {
+	var cats map[string][]string
+	if err := readYAML(filepath.Join(dir, "allowlist.yaml"), &cats); err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, terms := range cats {
+		out = append(out, terms...)
+	}
+	return out, nil
+}
+
+// LoadFirstNames lê config/first_names.txt (uma por linha; # comenta).
+func LoadFirstNames(dir string) ([]string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, "first_names.txt"))
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !strings.HasPrefix(l, "#") {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
+type GlossaryTerm struct {
+	Term       string   `yaml:"term"`
+	Aliases    []string `yaml:"aliases"`
+	Definition string   `yaml:"definition"`
+	SourceName string   `yaml:"source_name"`
+	URL        string   `yaml:"url"`
+	CheckURL   string   `yaml:"check_url"`
+	Check      string   `yaml:"check"`
+	Entities   []struct {
+		Name string `yaml:"name"`
+		Type string `yaml:"type"`
+	} `yaml:"entities"`
+}
+
+func LoadGlossary(dir string) ([]GlossaryTerm, error) {
+	var g struct {
+		Terms []GlossaryTerm `yaml:"terms"`
+	}
+	return g.Terms, readYAML(filepath.Join(dir, "glossary.yaml"), &g)
 }

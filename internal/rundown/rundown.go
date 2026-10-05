@@ -35,6 +35,35 @@ var selectSchema = llm.MustSchema("rundown.json", `{
 
 const maxCandidates = 40
 
+// Spare: artigos de reserva pedidos à pauta além de max_articles.
+const Spare = 3
+
+// Exclude tira da pauta artigos de temas fora do brief (ex.: saúde), por
+// trecho de URL ou palavra no título/resumo.
+func Exclude(arts []store.Article, urlParts, keywords []string) (kept []store.Article, excluded int) {
+	for _, a := range arts {
+		drop := false
+		for _, u := range urlParts {
+			if strings.Contains(strings.ToLower(a.URL), strings.ToLower(u)) {
+				drop = true
+				break
+			}
+		}
+		for _, k := range keywords {
+			if drop || textutil.ContainsPhrase(a.Title+" "+a.Summary, k) {
+				drop = true
+				break
+			}
+		}
+		if drop {
+			excluded++
+		} else {
+			kept = append(kept, a)
+		}
+	}
+	return kept, excluded
+}
+
 // FilterByKeywords mantém os artigos cujo título/resumo citam alguma palavra-chave.
 func FilterByKeywords(arts []store.Article, kws []string) []store.Article {
 	if len(kws) == 0 {
@@ -64,7 +93,7 @@ func PickWeather(all []facts.Fact, fixed []string, rotating int, slot time.Time)
 		if len(f.Entities) == 0 {
 			continue
 		}
-		city := textutil.Normalize(f.Entities[0])
+		city := textutil.Normalize(f.Entities[0].Name)
 		if isFixed[city] {
 			byCity[city] = f
 		} else {
@@ -101,7 +130,10 @@ func (p *Planner) Plan(ctx context.Context, b config.Block, cands []store.Articl
 	if b.MaxArticles == 0 || len(cands) == 0 {
 		return plan, nil
 	}
-	ids, err := p.selectWithLLM(ctx, b, cands)
+	// Pede reservas: a extração pode não render fatos e o humor prefere
+	// matérias sem pessoas (decidido depois da extração).
+	want := b.MaxArticles + Spare
+	ids, err := p.selectWithLLM(ctx, b, cands, want)
 	if err != nil {
 		if llm.Fatal(err) {
 			return plan, err
@@ -115,14 +147,14 @@ func (p *Planner) Plan(ctx context.Context, b config.Block, cands []store.Articl
 	}
 	seen := map[int64]bool{}
 	for _, id := range ids {
-		if a, ok := byID[id]; ok && !seen[id] && len(plan.Articles) < b.MaxArticles {
+		if a, ok := byID[id]; ok && !seen[id] && len(plan.Articles) < want {
 			plan.Articles = append(plan.Articles, a)
 			seen[id] = true
 		}
 	}
 	if len(plan.Articles) == 0 { // fallback determinístico: as mais recentes
 		for _, a := range cands {
-			if len(plan.Articles) >= b.MaxArticles {
+			if len(plan.Articles) >= want {
 				break
 			}
 			plan.Articles = append(plan.Articles, a)
@@ -131,11 +163,16 @@ func (p *Planner) Plan(ctx context.Context, b config.Block, cands []store.Articl
 	return plan, nil
 }
 
-func (p *Planner) selectWithLLM(ctx context.Context, b config.Block, cands []store.Article) ([]int64, error) {
+// selectWithLLM escolhe pelo título (barato): o resumo não vai ao prompt.
+func (p *Planner) selectWithLLM(ctx context.Context, b config.Block, cands []store.Article, want int) ([]int64, error) {
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "Bloco: %s\nOrientação do bloco:\n%s\nEscolha até %d notícias, da mais para a menos importante.\n\nCandidatas:\n", b.Name, b.Instructions, b.MaxArticles)
+	fmt.Fprintf(&sb, "Bloco: %s\nOrientação do bloco:\n%s\nEscolha até %d notícias, da mais para a menos adequada.\n", b.Name, b.Instructions, want)
+	if b.Name == "humor" {
+		sb.WriteString("Prefira histórias sobre situações, bichos, objetos e lugares, sem pessoas identificadas.\n")
+	}
+	sb.WriteString("\nCandidatas (só o título):\n")
 	for _, a := range cands {
-		fmt.Fprintf(&sb, "[%d] %s — %s (%s)\n", a.ID, a.Title, truncate(a.Summary, 200), a.SourceName)
+		fmt.Fprintf(&sb, "[%d] %s (%s)\n", a.ID, a.Title, a.SourceName)
 	}
 	resp, err := p.LLM.Complete(ctx, llm.Request{
 		Purpose: "rundown", Model: p.Model, MaxTokens: 500, Temperature: llm.Float(0),
@@ -152,12 +189,4 @@ func (p *Planner) selectWithLLM(ctx context.Context, b config.Block, cands []sto
 		return nil, err
 	}
 	return out.ArticleIDs, nil
-}
-
-func truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
-	return string(r[:n]) + "…"
 }

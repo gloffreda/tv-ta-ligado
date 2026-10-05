@@ -239,3 +239,93 @@ recente) em 05/10/2026:
   `facts.confirmed_at` (migração 0003) marca a reconfirmação, e o relatório passou
   a mostrar novos + reconfirmados por `kind`. Uma capital sem dado de verdade
   (campo nulo) agora vira aviso `source_failed`; antes ia só para o log.
+
+## Sprint 1.1: qualidade e custo (05/10/2026)
+
+### Nomes próprios
+- **Entidades tipadas:** a extração devolve `{name, type}` com `type` em
+  `person|org|place|other`. Mercado e glossário usam `org`/`other`; clima, `place`.
+  Os fatos antigos ficaram com tipo vazio (migração 0004), que não conta como pessoa.
+- **Banter reprova** se citar: (a) entidade `person` de qualquer fato do banco;
+  (b) sequência de 2+ palavras capitalizadas fora da allowlist e fora do início da
+  frase (a palavra que abre a frase é ignorada); (c) prenome de
+  `config/first_names.txt`, em qualquer posição; (d) organização ou lugar conhecido
+  no banco que não esteja na allowlist **nem nos fatos do segmento**. Em banter,
+  "fatos referenciados" foi lido como "fatos da pauta do segmento", porque banter
+  não tem `fact_ids`. Assim "Chernobyl" pode aparecer no comentário sobre a matéria
+  de Chernobyl.
+- **Entidade de uma palavra só** conta com a mesma grafia, inclusive maiúsculas:
+  "de novo" não é o partido "Novo" e "vitória" não é a cidade. Entidade toda em
+  minúsculas ("mercado") não é nome próprio e é ignorada. Isso eliminou os falsos
+  positivos da rodada anterior.
+- **Falas `fact`** usam as mesmas regras, mas o nome é aceito quando está nas
+  `entities` dos fatos citados ou na allowlist. Uma palavra capitalizada solta que
+  não seja prenome nem entidade conhecida passa no estágio 1; quem barra uma troca
+  de lugar ou de nome é o juiz, com entailment estrito.
+- `first_names.txt` deixa de fora, de propósito, prenomes que também são palavras
+  comuns ou lugares (Rosa, Luz, Glória, Vitória, Natal…) e os avatares.
+
+### Glossário
+- Kind `glossary`, "TTL nulo" implementado como `expires_at = 9999-12-31`. A coluna
+  continua `NOT NULL` e o pgx não lê `infinity` em `time.Time`.
+- **Validação da fonte:** HTTP 200 **e** a frase `check` presente no texto da fonte.
+  O site do BCB responde 200 com a mesma casca JavaScript para qualquer caminho,
+  inclusive caminhos que não existem. Por isso a validação usa a API de conteúdo
+  (`/api/paginasite/sitebcb/<caminho>`); página inexistente vem com `metatags: null`.
+  O link exibido no ar é a página pública.
+- **21 termos carregados:** 8 do BCB (Selic, Copom, inflação, IPCA, índice de preços,
+  meta para a inflação, reservas internacionais, Pix) e 13 do glossário do INMET
+  (frente fria, frente quente, massa de ar, geada, granizo, onda de calor, nevoeiro,
+  garoa, rajada de vento, ciclone extratropical, El Niño, chuva, amplitude térmica).
+  As definições são trechos do próprio texto oficial.
+- **Ficaram fora:** PIB e desemprego (IBGE). Todos os domínios do IBGE
+  (`www.ibge.gov.br`, `agenciadenoticias`, `educa`) respondem 403 com desafio
+  Cloudflare ("Just a moment…"), então a fonte não pode ser validada
+  automaticamente. Dólar PTAX e câmbio também: o BCB não tem página com texto
+  explicativo acessível pela API (`cotacoestodas` e `cambioecapitais` vêm vazias).
+- O roteirista recebe até 4 termos citados na pauta (por termo ou sinônimo). A
+  "tradução" da Duda é uma fala `fact` que cita o `fact_id` do glossário.
+
+### Juiz, reescrita e continuidade
+- O juiz tem dois modos. `fact` segue com entailment estrito. `banter` responde
+  `{new_factual_claim, claim, real_person_mocked}` e recebe os fatos do segmento
+  como contexto: repetir o que já foi dito não é "afirmação nova".
+- **Reescrita:** até 2 por fala. O prompt traz o motivo, todas as regras do tipo
+  de fala, os termos da allowlist que aparecem no segmento e a proibição explícita
+  de introduzir pessoas. Cada reescrita passa primeiro pelo estágio 1 (sem custo
+  de juiz). A primeira que passa vai ao juiz **uma vez**; se o juiz reprovar, a fala
+  é cortada. No máximo 2 chamadas ao juiz por fala.
+- **Continuidade:** só roda se houve corte. O MODEL_FAST propõe `remove`/`shorten`.
+  O código aceita apenas falas banter vivas, nunca a última fala nem a frase de
+  encerramento. "Encurtar" precisa ser só apagar palavras (subsequência das
+  palavras originais), o que é verificado por código, e a fala encurtada volta pelo
+  estágio 1. Fala removida ganha o status `removed`: não conta como corte da
+  checagem, mas sai da contagem de falas na regra das 6 falas.
+
+### Humor
+- A pauta do humor pede histórias sem pessoas identificadas e reservas extras.
+  Depois da extração, o código prefere matérias cujos fatos não têm entidade
+  `person`. No contrato do roteiro, fato com pessoa no humor só pode ser lido pelo
+  Orlando; se vier diferente, o roteiro é recusado e refeito uma vez.
+
+### Custo
+- **Extração preguiçosa (revertendo a decisão da rodada anterior, a pedido):** a
+  ingestão não chama LLM. A pauta escolhe pelo **título** (o resumo saiu do prompt)
+  e só então extrai fatos das escolhidas, com `max_articles + 3` reservas para o
+  caso de alguma não render fatos. O custo da extração entra no custo do segmento.
+- **Saúde fora da pauta:** `schedule.yaml → exclude` (trechos de URL como
+  `equilibrioesaude`, `/saude/`, mais palavras-chave no título ou resumo).
+- **Reprise:** `REPLAY_WHEN_IDLE=on` e `VIEWERS=0` fazem o loop reapresentar um
+  segmento aprovado das últimas `REPLAY_WINDOW` (6 h) em vez de gerar. A escolha é
+  o menos exibido recentemente, desde que todos os fatos citados continuem
+  válidos. A tabela `airings` registra estreias e reprises, e a grade passa a
+  olhar a última exibição. O padrão é `off`.
+- **Relatório:** custo por propósito e por segmento aprovado (tentativas
+  rejeitadas incluídas), custo de extração por artigo e projeção diária
+  (24/7 e 7h–23h) a partir da grade.
+
+### BCB
+- Timeout de 20 s, 3 tentativas com backoff de 2 s e 4 s: duas pela consulta de
+  intervalo e a terceira por `ultimos/20`. Se todas falharem, o último valor válido
+  (dentro das 24 h) continua no ar e o evento `bcb_stale` aparece nos Avisos. Sem
+  valor válido, a falha vira `source_failed`.

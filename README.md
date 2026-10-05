@@ -39,9 +39,10 @@ Outros alvos e subcomandos:
 | `make down` | derruba só o projeto `tvtl` (volumes preservados) |
 | `make clean` | apaga containers **e volumes** do projeto (pede confirmação) |
 | `make migrate` | aplica migrações |
-| `make ingest` | uma rodada de ingestão + extração de fatos dos artigos pendentes |
+| `make ingest` | uma rodada de ingestão (sem LLM: título, resumo e, se CC BY, corpo) |
 | `make debug-up` / `make debug-down` | expõe o Postgres em `127.0.0.1:${TVTL_PG_PORT:-55432}` |
 | `docker compose -p tvtl run --rm tvtl feeds-check` | valida as URLs de `config/feeds.yaml` |
+| `… tvtl glossary` | valida as fontes e carrega `config/glossary.yaml` (também roda na partida do `run`) |
 | `… tvtl rundown --block noticias` | mostra a pauta que seria montada |
 | `… tvtl write --block economia` | pauta + fatos + roteiro → segmento `draft` |
 | `… tvtl check --segment 42` | checa um `draft` e decide `approved`/`rejected` |
@@ -52,12 +53,13 @@ Outros alvos e subcomandos:
 ## Como funciona
 
 ```
-RSS / BCB / Open-Meteo ──► articles, facts (mercado, clima)
+RSS / BCB / Open-Meteo ──► articles (título/resumo), facts (mercado, clima)
+glossary.yaml (BCB, INMET) ──► facts kind=glossary (fonte validada, sem validade)
                 │
-   extração de fatos (MODEL_FAST), até 40 artigos por ciclo, mais recentes primeiro
-   + validação literal por código  (roda com GENERATE=off; pausa no bloqueio; respeita o teto)
+   pauta pelo TÍTULO (MODEL_FAST; saúde excluída) ──► matérias escolhidas
                 │
-   pauta (MODEL_FAST) ──► artigos escolhidos e seus fatos
+   extração preguiçosa de fatos (MODEL_FAST), só das escolhidas
+   + validação literal por código; + termos de glossário citados na pauta
                 ▼
    roteiro (MODEL_SMART, JSON estrito validado por schema; 1 nova tentativa)
                 │
@@ -65,7 +67,10 @@ RSS / BCB / Open-Meteo ──► articles, facts (mercado, clima)
      1. determinística: números (formato BR, arredondamento), nomes × entities,
         banter sem número/nome, fact_ids existentes e válidos
      2. juiz (MODEL_SMART): entailed / unsupported / real_person_mocked
-     reprovou → 1 reescrita com o motivo → reprovou de novo → cortada
+     reprovou → até 2 reescritas com o motivo e todas as regras; cada uma passa
+     antes pelo estágio 1 (sem custo de juiz) → reprovou de novo → cortada
+                │
+   continuidade (MODEL_FAST): só remove ou encurta banter órfão (verificado por código)
                 │
    segmento: >30% das falas fact cortadas ou <6 falas → rejected; senão approved
                 │
@@ -75,6 +80,10 @@ RSS / BCB / Open-Meteo ──► articles, facts (mercado, clima)
 - Blocos (`config/schedule.yaml`): `noticias` (Orlando conduz, Duda comenta, tempo no
   fim), `economia` (só fatos; termina com "Isso não é recomendação de
   investimento."), `humor` (Duda conduz; nunca sobre pessoas reais).
+- Nomes próprios: `config/allowlist.yaml` (instituições, siglas, lugares, meses,
+  palavras comuns capitalizadas) e `config/first_names.txt` (prenomes que indicam
+  pessoa real). Banter nunca cita pessoa real.
+- Glossário com fonte oficial: `config/glossary.yaml`.
 - Personas em `config/personas/*.yaml`. A pasta `config/` é montada só-leitura e
   relida a cada geração: mudar o YAML muda o comportamento sem recompilar.
 - Bloqueio eleitoral (`config/blackout.yaml`): lista de janelas verificada antes de
@@ -97,6 +106,9 @@ aplicados estão em [DECISIONS.md](DECISIONS.md).
 | `PRICE_SMART_INPUT_PER_MTOK` / `PRICE_SMART_OUTPUT_PER_MTOK` | `2.00` / `10.00` | US$ por milhão de tokens |
 | `MAX_DAILY_USD` | `5.00` | teto diário (fuso de Brasília) |
 | `GENERATE` | `on` | chave geral (`on`/`off`) |
+| `REPLAY_WHEN_IDLE` | `off` | `on`: com `VIEWERS=0`, reprisa em vez de gerar |
+| `VIEWERS` | `1` | audiência (variável por ora; Sprint 3: contagem real) |
+| `REPLAY_WINDOW` | `6h` | janela dos segmentos aprovados que podem ser reprisados |
 | `INGEST_INTERVAL` | `5m` | intervalo da ingestão |
 | `MEMORY_HALF_LIFE_DAYS` | `7` | meia-vida do peso das memórias |
 | `TVTL_TIMEZONE` | `America/Sao_Paulo` | fuso do orçamento e das datas |
