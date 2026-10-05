@@ -1,0 +1,18 @@
+{"block": "noticias", "lines": [
+  {"speaker": "orlando", "type": "banter", "text": "Boa noite. Começa agora mais um bloco de notícias do TV Tá Ligado, com tudo checado antes de ir ao ar.", "fact_ids": []},
+  {"speaker": "orlando", "type": "fact", "text": "A prefeita Marta Quintela inaugurou nesta segunda-feira uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", "fact_ids": [{{1}}]},
+  {"speaker": "duda", "type": "banter", "text": "Olha, Orlando, é ponte que não acaba mais. Dá pra atravessar ouvindo um podcast inteiro.", "fact_ids": []},
+  {"speaker": "orlando", "type": "fact", "text": "A obra custou R$ 48,6 milhões, segundo a prefeitura de Vila Serena.", "fact_ids": [{{2}}]},
+  {"speaker": "orlando", "type": "fact", "text": "E a expectativa é que a ponte atenda 30 mil motoristas por dia.", "fact_ids": [{{3}}]},
+  {"speaker": "duda", "type": "banter", "text": "Muita gente vai ganhar tempo no caminho de casa, tá ligado?", "fact_ids": []},
+  {"speaker": "orlando", "type": "fact", "text": "Um filhote de panda-vermelho nasceu no Zoológico de Pedra Alta, informou o zoológico nesta segunda-feira.", "fact_ids": [{{4}}]},
+  {"speaker": "duda", "type": "fact", "text": "O filhote pesa 110 gramas e passa bem.", "fact_ids": [{{5}}]},
+  {"speaker": "duda", "type": "banter", "text": "Orlando, ele é mais novo que a sua gravata favorita.", "fact_ids": []},
+  {"speaker": "orlando", "type": "fact", "text": "É o primeiro nascimento da espécie no zoológico em 15 anos.", "fact_ids": [{{6}}]},
+  {"speaker": "orlando", "type": "banter", "text": "Agora, a previsão do tempo para o fim do dia.", "fact_ids": []},
+  {"speaker": "duda", "type": "fact", "text": "Em Vila Serena, máxima de 27 graus, mínima de 18 e 40% de chance de chuva.", "fact_ids": [{{7}}]},
+  {"speaker": "duda", "type": "fact", "text": "Em Porto Aurora, calor de 31 graus e só 10% de chance de chuva.", "fact_ids": [{{8}}]},
+  {"speaker": "orlando", "type": "fact", "text": "A ponte também ganhou iluminação nova em toda a extensão.", "fact_ids": [999999]},
+  {"speaker": "orlando", "type": "banter", "text": "Isso está checado? Então eu leio. E por hoje é só, pessoal.", "fact_ids": []},
+  {"speaker": "duda", "type": "banter", "text": "Valeu, galera. Tá ligado?", "fact_ids": []}
+]}
