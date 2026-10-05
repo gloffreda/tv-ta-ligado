@@ -1,0 +1,320 @@
+[
+ {
+  "id": 1,
+  "kind": "market",
+  "claim": "O dólar comercial (venda) ficou em R$ 5,2079 em 02/10/2026, segundo o Banco Central.",
+  "entities": [
+   "Banco Central"
+  ],
+  "value": 5.2079,
+  "unit": "BRL",
+  "as_of": "2026-10-02T00:00:00-03:00",
+  "source_name": "Banco Central (SGS)",
+  "source_url": "https://exemplo.invalid/fato/1",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 2,
+  "kind": "market",
+  "claim": "A meta da taxa Selic, definida pelo Copom, está em 13,75% ao ano, segundo o Banco Central (dado de 05/10/2026).",
+  "entities": [
+   "Banco Central",
+   "Selic",
+   "Copom"
+  ],
+  "value": 13.75,
+  "unit": "% a.a.",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Banco Central (SGS)",
+  "source_url": "https://exemplo.invalid/fato/2",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 3,
+  "kind": "market",
+  "claim": "O IPCA, índice oficial de inflação, variou -0,32% em agosto de 2026, segundo dados do Banco Central.",
+  "entities": [
+   "Banco Central",
+   "IPCA"
+  ],
+  "value": -0.32,
+  "unit": "%",
+  "as_of": "2026-08-01T00:00:00-03:00",
+  "source_name": "Banco Central (SGS)",
+  "source_url": "https://exemplo.invalid/fato/3",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 4,
+  "kind": "weather",
+  "claim": "Previsão para 05/10/2026 em Vila Serena (VS): máxima de 27,4 °C, mínima de 18 °C e 40% de chance de chuva, segundo o Open-Meteo.",
+  "entities": [
+   "Vila Serena",
+   "VS",
+   "Open-Meteo"
+  ],
+  "value": 27.4,
+  "unit": "°C",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Open-Meteo",
+  "source_url": "https://exemplo.invalid/fato/4",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 5,
+  "kind": "weather",
+  "claim": "Previsão para 05/10/2026 em Porto Aurora (PX): máxima de 31 °C, mínima de 22,5 °C e 10% de chance de chuva, segundo o Open-Meteo.",
+  "entities": [
+   "Porto Aurora",
+   "PX",
+   "Open-Meteo"
+  ],
+  "value": 31,
+  "unit": "°C",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Open-Meteo",
+  "source_url": "https://exemplo.invalid/fato/5",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 6,
+  "kind": "headline",
+  "claim": "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.",
+  "entities": [
+   "Marta Quintela",
+   "Vila Serena",
+   "rio Claro"
+  ],
+  "value": 1250,
+  "unit": "metros",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/6",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 7,
+  "kind": "headline",
+  "claim": "O Instituto Nacional de Pesquisas Fictícias (INPF) registrou 3.482 focos de calor em setembro de 2026.",
+  "entities": [
+   "Instituto Nacional de Pesquisas Fictícias",
+   "INPF"
+  ],
+  "value": 3482,
+  "unit": "focos",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/7",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 8,
+  "kind": "headline",
+  "claim": "A Companhia Estrela do Sul anunciou a contratação de 2,5 mil trabalhadores para a safra de 2026.",
+  "entities": [
+   "Companhia Estrela do Sul"
+  ],
+  "value": 2500,
+  "unit": "trabalhadores",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/8",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 9,
+  "kind": "headline",
+  "claim": "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no domingo (4).",
+  "entities": [
+   "Unidos da Serra",
+   "Atlético Lagoa"
+  ],
+  "value": null,
+  "unit": "",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/9",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 10,
+  "kind": "headline",
+  "claim": "O ministro Caio Brandão afirmou que o programa Casa Clara entregou 12 mil moradias em 2026.",
+  "entities": [
+   "Caio Brandão",
+   "Casa Clara"
+  ],
+  "value": 12000,
+  "unit": "moradias",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/10",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 11,
+  "kind": "headline",
+  "claim": "A exportação de café do estado de Monte Verde somou US$ 1,2 bilhão no terceiro trimestre.",
+  "entities": [
+   "Monte Verde"
+  ],
+  "value": 1200000000.0,
+  "unit": "USD",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/11",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 12,
+  "kind": "headline",
+  "claim": "A Agência Nacional de Águas Fictícias declarou situação de escassez no rio Claro até 31 de outubro.",
+  "entities": [
+   "Agência Nacional de Águas Fictícias",
+   "rio Claro"
+  ],
+  "value": null,
+  "unit": "",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/12",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 13,
+  "kind": "headline",
+  "claim": "O Festival de Inverno de Pedra Alta recebeu 85 mil visitantes, segundo a organização.",
+  "entities": [
+   "Festival de Inverno de Pedra Alta",
+   "Pedra Alta"
+  ],
+  "value": 85000,
+  "unit": "visitantes",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/13",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 14,
+  "kind": "headline",
+  "claim": "A taxa de desemprego em Monte Verde caiu para 6,8% no trimestre encerrado em agosto.",
+  "entities": [
+   "Monte Verde"
+  ],
+  "value": 6.8,
+  "unit": "%",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/14",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 15,
+  "kind": "headline",
+  "claim": "A Universidade Federal de Vila Serena abriu 4.200 vagas para o vestibular de 2027.",
+  "entities": [
+   "Universidade Federal de Vila Serena",
+   "Vila Serena"
+  ],
+  "value": 4200,
+  "unit": "vagas",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/15",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 16,
+  "kind": "headline",
+  "claim": "Um panda-vermelho nasceu no Zoológico de Pedra Alta, informou o zoológico nesta segunda-feira (5).",
+  "entities": [
+   "Zoológico de Pedra Alta",
+   "Pedra Alta"
+  ],
+  "value": null,
+  "unit": "",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/16",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 17,
+  "kind": "headline",
+  "claim": "A prefeitura de Porto Aurora lançou um aplicativo para agendar consultas médicas.",
+  "entities": [
+   "Porto Aurora"
+  ],
+  "value": null,
+  "unit": "",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/17",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 18,
+  "kind": "headline",
+  "claim": "O preço médio da gasolina em Monte Verde foi de R$ 6,19 por litro na última semana, segundo a Agência Fictícia do Petróleo.",
+  "entities": [
+   "Monte Verde",
+   "Agência Fictícia do Petróleo"
+  ],
+  "value": 6.19,
+  "unit": "BRL",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/18",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 19,
+  "kind": "headline",
+  "claim": "Pesquisadores da Universidade Federal de Vila Serena identificaram uma nova espécie de sapo.",
+  "entities": [
+   "Universidade Federal de Vila Serena",
+   "Vila Serena"
+  ],
+  "value": null,
+  "unit": "",
+  "as_of": "2026-10-05T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/19",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2099-01-01T00:00:00-03:00"
+ },
+ {
+  "id": 20,
+  "kind": "headline",
+  "claim": "A ponte velha do rio Claro foi interditada para obras.",
+  "entities": [
+   "rio Claro"
+  ],
+  "value": null,
+  "unit": "",
+  "as_of": "2026-09-29T00:00:00-03:00",
+  "source_name": "Fonte Fictícia",
+  "source_url": "https://exemplo.invalid/fato/20",
+  "created_at": "2026-10-05T08:00:00-03:00",
+  "expires_at": "2026-10-01T00:00:00-03:00"
+ }
+]
