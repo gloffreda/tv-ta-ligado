@@ -1,0 +1,16 @@
+[
+ {
+  "key": "a1",
+  "url": "https://exemplo.invalid/a1",
+  "title": "Vila Serena inaugura ponte de 1.250 metros sobre o rio Claro",
+  "summary": "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.",
+  "body": "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena. A obra custou R$ 48,6 milhões e deve atender 30 mil motoristas por dia, segundo a prefeitura. A antiga travessia de balsa será desativada em 15 de outubro."
+ },
+ {
+  "key": "a2",
+  "url": "https://exemplo.invalid/a2",
+  "title": "Panda-vermelho nasce no Zoológico de Pedra Alta",
+  "summary": "Um filhote de panda-vermelho nasceu no Zoológico de Pedra Alta, informou o zoológico nesta segunda-feira (5).",
+  "body": "Um filhote de panda-vermelho nasceu no Zoológico de Pedra Alta, informou o zoológico nesta segunda-feira (5). O filhote pesa 110 gramas e passa bem. É o primeiro nascimento da espécie no local em 12 anos."
+ }
+]

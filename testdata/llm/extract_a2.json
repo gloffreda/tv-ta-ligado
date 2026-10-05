@@ -1,0 +1,7 @@
+```json
+{"facts": [
+  {"claim": "Um filhote de panda-vermelho nasceu no Zoológico de Pedra Alta, informou o zoológico nesta segunda-feira (5).", "entities": ["Zoológico de Pedra Alta"], "value": null, "unit": ""},
+  {"claim": "O filhote de panda-vermelho pesa 110 gramas e passa bem.", "entities": [], "value": 110, "unit": "gramas"},
+  {"claim": "É o primeiro nascimento de panda-vermelho no Zoológico de Pedra Alta em 12 anos.", "entities": ["Zoológico de Pedra Alta"], "value": 12, "unit": "anos"}
+]}
+```

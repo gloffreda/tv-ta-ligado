@@ -1,0 +1,6 @@
+# Janelas em que NADA novo é gerado; o canal só reprisa.
+# Verificado antes de cada geração. Horários com fuso explícito.
+windows:
+  - name: Segundo turno 2026 (janela conservadora)
+    start: 2026-10-22T00:00:00-03:00
+    end: 2026-10-27T00:00:00-03:00
