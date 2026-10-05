@@ -1,0 +1,105 @@
+# Fontes de ingestão. Cada URL de RSS foi validada (ver DECISIONS.md e
+# `tvtl feeds-check`). Só fontes com license: cc-by guardam o corpo do texto.
+rss:
+  - name: Agência Brasil — Últimas
+    credit: Agência Brasil
+    url: https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml
+    license: cc-by
+    store_body: true
+  - name: Agência Brasil — Economia
+    credit: Agência Brasil
+    url: https://agenciabrasil.ebc.com.br/rss/economia/feed.xml
+    license: cc-by
+    store_body: true
+  - name: g1
+    credit: g1
+    url: https://g1.globo.com/rss/g1/
+    license: none
+  - name: g1 Economia
+    credit: g1
+    url: https://g1.globo.com/rss/g1/economia/
+    license: none
+  - name: CNN Brasil
+    credit: CNN Brasil
+    url: https://www.cnnbrasil.com.br/feed/
+    license: none
+  - name: Poder360
+    credit: Poder360
+    url: https://www.poder360.com.br/feed/
+    license: none
+  - name: Folha de S.Paulo — Em cima da hora
+    credit: Folha de S.Paulo
+    url: https://feeds.folha.uol.com.br/emcimadahora/rss091.xml
+    license: none
+  - name: Estadão — Brasil
+    credit: Estadão
+    url: https://www.estadao.com.br/arc/outboundfeeds/feeds/rss/sections/brasil/
+    license: none
+  - name: BBC News Brasil
+    credit: BBC News Brasil
+    url: https://feeds.bbci.co.uk/portuguese/rss.xml
+    license: none
+  - name: RFI Brasil
+    credit: RFI
+    url: https://www.rfi.fr/br/rss
+    license: none
+
+# Banco Central — API SGS. min/max confirmam que o código é a série certa
+# (a resposta da API não traz o nome da série).
+bcb:
+  - code: 1
+    key: dolar
+    label: Dólar comercial (venda)
+    unit: BRL
+    min: 2
+    max: 15
+    entities: [Banco Central]
+    claim: "O dólar comercial (venda) ficou em R$ {valor} em {data}, segundo o Banco Central."
+  - code: 432
+    key: selic
+    label: Meta da taxa Selic
+    unit: "% a.a."
+    min: 1
+    max: 30
+    entities: [Banco Central, Selic, Copom]
+    claim: "A meta da taxa Selic, definida pelo Copom, está em {valor}% ao ano, segundo o Banco Central (dado de {data})."
+  - code: 433
+    key: ipca
+    label: IPCA — variação mensal
+    unit: "%"
+    min: -3
+    max: 5
+    entities: [Banco Central, IPCA]
+    claim: "O IPCA, índice oficial de inflação, variou {valor}% em {mes_ano}, segundo dados do Banco Central."
+
+weather:
+  source_name: Open-Meteo
+  url: https://api.open-meteo.com/v1/forecast
+  capitals:
+    - {city: Rio Branco, uf: AC, lat: -9.9754, lon: -67.8249}
+    - {city: Maceió, uf: AL, lat: -9.6658, lon: -35.7353}
+    - {city: Macapá, uf: AP, lat: 0.0349, lon: -51.0694}
+    - {city: Manaus, uf: AM, lat: -3.1190, lon: -60.0217}
+    - {city: Salvador, uf: BA, lat: -12.9714, lon: -38.5014}
+    - {city: Fortaleza, uf: CE, lat: -3.7319, lon: -38.5267}
+    - {city: Brasília, uf: DF, lat: -15.7939, lon: -47.8828}
+    - {city: Vitória, uf: ES, lat: -20.3155, lon: -40.3128}
+    - {city: Goiânia, uf: GO, lat: -16.6869, lon: -49.2648}
+    - {city: São Luís, uf: MA, lat: -2.5307, lon: -44.3068}
+    - {city: Cuiabá, uf: MT, lat: -15.6014, lon: -56.0979}
+    - {city: Campo Grande, uf: MS, lat: -20.4697, lon: -54.6201}
+    - {city: Belo Horizonte, uf: MG, lat: -19.9167, lon: -43.9345}
+    - {city: Belém, uf: PA, lat: -1.4558, lon: -48.4902}
+    - {city: João Pessoa, uf: PB, lat: -7.1195, lon: -34.8450}
+    - {city: Curitiba, uf: PR, lat: -25.4284, lon: -49.2733}
+    - {city: Recife, uf: PE, lat: -8.0476, lon: -34.8770}
+    - {city: Teresina, uf: PI, lat: -5.0920, lon: -42.8038}
+    - {city: Rio de Janeiro, uf: RJ, lat: -22.9068, lon: -43.1729}
+    - {city: Natal, uf: RN, lat: -5.7945, lon: -35.2110}
+    - {city: Porto Alegre, uf: RS, lat: -30.0346, lon: -51.2177}
+    - {city: Porto Velho, uf: RO, lat: -8.7612, lon: -63.9004}
+    - {city: Boa Vista, uf: RR, lat: 2.8235, lon: -60.6758}
+    - {city: Florianópolis, uf: SC, lat: -27.5954, lon: -48.5480}
+    - {city: São Paulo, uf: SP, lat: -23.5505, lon: -46.6333}
+    - {city: Aracaju, uf: SE, lat: -10.9472, lon: -37.0731}
+    - {city: Palmas, uf: TO, lat: -10.1689, lon: -48.3317}

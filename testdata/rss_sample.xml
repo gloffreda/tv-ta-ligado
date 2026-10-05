@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0"><channel><title>Feed fictício</title>
+<item><title>Vila Serena inaugura ponte</title><link>https://exemplo.invalid/ponte</link>
+<description>&lt;p&gt;&lt;strong&gt;A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros.&lt;/strong&gt;&lt;/p&gt;&lt;p&gt;A obra custou R$ 48,6 milhões, segundo a prefeitura de Vila Serena.&lt;/p&gt;</description>
+<pubDate>Mon, 05 Oct 2026 10:00:00 -0300</pubDate></item>
+<item><title>  Vila Serena INAUGURA ponte!  </title><link>https://exemplo.invalid/ponte-repetida</link><description>repetida</description></item>
+<item><title></title><link>https://exemplo.invalid/sem-titulo</link></item>
+</channel></rss>
