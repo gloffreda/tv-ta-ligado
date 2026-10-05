@@ -1,0 +1,122 @@
+# TV Tá Ligado — Sprint 1. Projeto isolado: nome fixo, rede própria, volumes
+# prefixados, sem portas publicadas por padrão e com limites de recurso.
+name: tvtl
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-pg-env: &pg-env
+  POSTGRES_USER: ${POSTGRES_USER:-tvtl}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tvtl}
+
+networks:
+  tvtl_net:
+    name: tvtl_net
+    driver: bridge
+
+volumes:
+  tvtl_pgdata:
+    name: tvtl_pgdata
+  tvtl_gomod:
+    name: tvtl_gomod
+  tvtl_gocache:
+    name: tvtl_gocache
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      <<: *pg-env
+      POSTGRES_DB: ${POSTGRES_DB:-tvtl}
+    volumes:
+      - tvtl_pgdata:/var/lib/postgresql/data
+    networks: [tvtl_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: ${TVTL_PG_MEM:-512m}
+    cpus: ${TVTL_PG_CPUS:-1}
+    logging: *logging
+
+  tvtl:
+    build: .
+    image: tvtl:local
+    command: ["run"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-tvtl}:${POSTGRES_PASSWORD:-tvtl}@postgres:5432/${POSTGRES_DB:-tvtl}?sslmode=disable
+      TVTL_CONFIG_DIR: /app/config
+    volumes:
+      # YAML montado só-leitura: mudar persona/pauta não exige rebuild.
+      - ./config:/app/config:ro
+    networks: [tvtl_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: ${TVTL_MEM:-256m}
+    cpus: ${TVTL_CPUS:-1}
+    logging: *logging
+
+  # Acesso local ao Postgres só para depuração: `make debug-up`.
+  # Publica apenas em 127.0.0.1, na porta TVTL_PG_PORT (padrão 55432).
+  pg-debug:
+    profiles: [debug]
+    image: tvtl:local
+    command: ["debug-proxy", "--listen", ":5432", "--target", "postgres:5432"]
+    ports:
+      - "127.0.0.1:${TVTL_PG_PORT:-55432}:5432"
+    networks: [tvtl_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    mem_limit: 64m
+    cpus: 0.25
+    logging: *logging
+
+  # Banco efêmero para testes: sem porta no host, dados em tmpfs.
+  postgres-test:
+    profiles: [test]
+    image: postgres:16-alpine
+    environment:
+      <<: *pg-env
+      POSTGRES_DB: tvtl_test
+    tmpfs:
+      - /var/lib/postgresql/data
+    networks: [tvtl_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d tvtl_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: "no"
+    mem_limit: ${TVTL_PGTEST_MEM:-512m}
+    cpus: ${TVTL_PGTEST_CPUS:-1}
+    logging: *logging
+
+  # Toolchain Go em container (nada de Go no host): testes, tidy, vet.
+  gotool:
+    profiles: [tools]
+    image: golang:1.27
+    working_dir: /src
+    environment:
+      GOFLAGS: -buildvcs=false -p=2
+      TEST_DATABASE_URL: postgres://${POSTGRES_USER:-tvtl}:${POSTGRES_PASSWORD:-tvtl}@postgres-test:5432/tvtl_test?sslmode=disable
+    volumes:
+      - .:/src
+      - tvtl_gomod:/go/pkg/mod
+      - tvtl_gocache:/root/.cache/go-build
+    networks: [tvtl_net]
+    restart: "no"
+    mem_limit: ${TVTL_GO_MEM:-3g}
+    cpus: ${TVTL_GO_CPUS:-2}
+    logging: *logging
