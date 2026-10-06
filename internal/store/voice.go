@@ -42,6 +42,9 @@ func (s *Store) InsertAudioAsset(ctx context.Context, a AudioAsset) error {
 
 // SetLineAudio liga a fala ao áudio (cost: 0 se veio do cache).
 func (s *Store) SetLineAudio(ctx context.Context, lineID int64, spoken string, a AudioAsset, cost float64) error {
+	if len(a.Visemes) == 0 {
+		a.Visemes = json.RawMessage("[]")
+	}
 	return pgx.BeginFunc(ctx, s.DB, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `UPDATE lines SET spoken_text=$2 WHERE id=$1`, lineID, spoken); err != nil {
 			return err

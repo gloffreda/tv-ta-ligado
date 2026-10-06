@@ -25,7 +25,7 @@ type fakeProvider struct {
 	price float64
 }
 
-func (f *fakeProvider) Name() string            { return f.name }
+func (f *fakeProvider) Name() string           { return f.name }
 func (f *fakeProvider) PricePerMChar() float64 { return f.price }
 func (f *fakeProvider) Synthesize(_ context.Context, text string, _ tts.Voice) (tts.Audio, time.Duration, error) {
 	atomic.AddInt32(&f.calls, 1)
@@ -40,7 +40,7 @@ type fakeLip struct{}
 
 func (fakeLip) Visemes(_ context.Context, wav []byte) ([]lipsync.Cue, error) {
 	_, d, _, err := tts.WAVInfo(wav)
-	return []lipsync.Cue{{0, int(d.Milliseconds()), "B"}}, err
+	return []lipsync.Cue{{StartMS: 0, EndMS: int(d.Milliseconds()), Shape: "B"}}, err
 }
 
 type ledger struct {
@@ -123,7 +123,7 @@ func TestVoiceSegment(t *testing.T) {
 	st := testfix.DB(t, "voice_segment")
 	ctx := context.Background()
 	rid, _ := st.CreateRundown(ctx, "noticias", time.Now())
-	sid, _ := st.CreateSegment(ctx, rid, "noticias")
+	sid, _ := st.CreateSegment(ctx, rid, "noticias", time.Now())
 	texts := []struct{ sp, typ, text, status string }{
 		{"orlando", "fact", "O dólar fechou a R$ 5,43 em 02/10/2026.", "ok"},
 		{"duda", "banter", "Tá ligado?", "rewritten"},
