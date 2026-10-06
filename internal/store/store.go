@@ -178,11 +178,11 @@ func (s *Store) UpsertFact(ctx context.Context, f facts.Fact) (int64, error) {
 	ents, _ := json.Marshal(f.Entities)
 	var id int64
 	err := s.DB.QueryRow(ctx, `
-		INSERT INTO facts(article_id, kind, claim, entities, value, unit, as_of, source_name, source_url, series, expires_at, fingerprint)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12)
+		INSERT INTO facts(article_id, kind, claim, entities, value, unit, as_of, source_name, source_url, series, expires_at, fingerprint, sensitive)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,NULLIF($10,''),$11,$12,$13)
 		ON CONFLICT (fingerprint) DO UPDATE SET expires_at = GREATEST(facts.expires_at, EXCLUDED.expires_at), confirmed_at = now()
 		RETURNING id`,
-		f.ArticleID, string(f.Kind), f.Claim, ents, f.Value, f.Unit, f.AsOf, f.SourceName, f.SourceURL, f.Series, f.ExpiresAt, f.Fingerprint()).Scan(&id)
+		f.ArticleID, string(f.Kind), f.Claim, ents, f.Value, f.Unit, f.AsOf, f.SourceName, f.SourceURL, f.Series, f.ExpiresAt, f.Fingerprint(), f.Sensitive).Scan(&id)
 	return id, err
 }
 
@@ -194,8 +194,8 @@ func nonNilIDs(s []int64) []int64 {
 }
 
 const (
-	factCols  = `id, article_id, kind, claim, entities, value::float8, unit, as_of, source_name, source_url, COALESCE(series, ''), created_at, expires_at`
-	factColsF = `f.id, f.article_id, f.kind, f.claim, f.entities, f.value::float8, f.unit, f.as_of, f.source_name, f.source_url, COALESCE(f.series, ''), f.created_at, f.expires_at`
+	factCols  = `id, article_id, kind, claim, entities, value::float8, unit, as_of, source_name, source_url, COALESCE(series, ''), created_at, expires_at, sensitive`
+	factColsF = `f.id, f.article_id, f.kind, f.claim, f.entities, f.value::float8, f.unit, f.as_of, f.source_name, f.source_url, COALESCE(f.series, ''), f.created_at, f.expires_at, f.sensitive`
 )
 
 func scanFacts(rows pgx.Rows) ([]facts.Fact, error) {
@@ -205,7 +205,7 @@ func scanFacts(rows pgx.Rows) ([]facts.Fact, error) {
 		var f facts.Fact
 		var kind string
 		var ents []byte
-		if err := rows.Scan(&f.ID, &f.ArticleID, &kind, &f.Claim, &ents, &f.Value, &f.Unit, &f.AsOf, &f.SourceName, &f.SourceURL, &f.Series, &f.CreatedAt, &f.ExpiresAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ArticleID, &kind, &f.Claim, &ents, &f.Value, &f.Unit, &f.AsOf, &f.SourceName, &f.SourceURL, &f.Series, &f.CreatedAt, &f.ExpiresAt, &f.Sensitive); err != nil {
 			return nil, err
 		}
 		f.Kind = facts.Kind(kind)
@@ -556,8 +556,13 @@ func (s *Store) TopMemories(ctx context.Context, n int, halfLifeDays float64, no
 // ---- LLM e eventos ----
 
 func (s *Store) RecordLLMCall(ctx context.Context, c llm.LLMCall) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO llm_calls(purpose, model, input_tokens, output_tokens, cost_usd, segment_id) VALUES ($1,$2,$3,$4,$5,$6)`,
-		c.Purpose, c.Model, c.InputTokens, c.OutputTokens, c.CostUSD, c.SegmentID)
+	var at *time.Time
+	if !c.At.IsZero() {
+		at = &c.At
+	}
+	_, err := s.DB.Exec(ctx, `INSERT INTO llm_calls(purpose, model, input_tokens, output_tokens, cost_usd, segment_id, cache_read_tokens, cache_write_tokens, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8, COALESCE($9, now()))`,
+		c.Purpose, c.Model, c.InputTokens, c.OutputTokens, c.CostUSD, c.SegmentID, c.CacheRead, c.CacheWrite, at)
 	return err
 }
 
@@ -792,4 +797,19 @@ func (s *Store) BlockCosts(ctx context.Context, t time.Time) ([]BlockCost, error
 		out = append(out, b)
 	}
 	return out, rows.Err()
+}
+
+// SetSegmentSensitive marca o segmento em modo sério.
+func (s *Store) SetSegmentSensitive(ctx context.Context, id int64, v bool) error {
+	_, err := s.DB.Exec(ctx, `UPDATE segments SET sensitive=$2 WHERE id=$1`, id, v)
+	return err
+}
+
+// Mood: humor do dia de um personagem (0–10).
+type Mood struct {
+	Persona    string
+	Irritacao  float64
+	Animo      float64
+	Rivalidade float64
+	UpdatedAt  time.Time
 }

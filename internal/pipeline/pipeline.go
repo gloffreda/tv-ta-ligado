@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gloffreda/tv-ta-ligado/internal/check"
@@ -229,13 +230,27 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 	}
 	_ = p.Store.SetRundownStatus(ctx, rundownID, "used")
 
-	// 3. Roteiro: só fatos da pauta (com glossário), personas e as 10 memórias de maior peso.
-	mems, err := p.Store.TopMemories(ctx, 10, p.Env.MemoryHalfLife, now)
+	// 3. Roteiro: só fatos da pauta (com glossário), personas do elenco, humor
+	// do dia e as 10 memórias de maior peso do par.
+	cast := block.CastOrDefault()
+	sensitive := facts.AnySensitive(segFacts)
+	if sensitive {
+		_ = p.Store.SetSegmentSensitive(ctx, segID, true)
+	}
+	mems, err := p.Store.CastMemories(ctx, cast, 10, MaxGagUsesWeek, p.Env.MemoryHalfLife, now)
 	if err != nil {
 		return res, err
 	}
-	writer := &script.Writer{LLM: p.LLM, Model: p.Env.ModelSmart, Schedule: sched, Personas: personas}
-	scr, attempts, err := writer.Write(ctx, script.Input{Block: block, Facts: segFacts, Memories: mems})
+	mood, err := p.Store.Moods(ctx, cast, now)
+	if err != nil {
+		return res, err
+	}
+	_, allow, err := p.Lexicon(sched)
+	if err != nil {
+		return res, err
+	}
+	writer := &script.Writer{LLM: p.LLM, Model: p.Env.ModelSmart, Schedule: sched, Personas: personas, Allow: allow, Cast: cast}
+	scr, attempts, err := writer.Write(ctx, script.Input{Block: block, Facts: segFacts, Memories: mems, Mood: mood, Sensitive: sensitive})
 	if err != nil {
 		return reject(attempts, err.Error(), fatalOrNil(err))
 	}
@@ -247,6 +262,11 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 			return res, err
 		}
 	}
+	var memIDs []int64
+	for _, m := range mems {
+		memIDs = append(memIDs, m.ID)
+	}
+	_ = p.Store.MarkMemoriesUsed(ctx, memIDs, now)
 	res.Status = "draft"
 	return res, nil
 }
@@ -351,7 +371,7 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 	flow := &check.Flow{
 		Env:      env,
 		Judge:    &check.Judge{LLM: p.LLM, Model: p.Env.ModelSmart, BanterModel: p.Env.JudgeBanterModel},
-		Rewriter: &script.Rewriter{LLM: p.LLM, Model: p.Env.ModelSmart, Block: block, Facts: segFacts, Allow: relevantAllow(allow, segFacts)},
+		Rewriter: &script.Rewriter{LLM: p.LLM, Model: p.Env.ModelSmart, Block: block, Facts: segFacts, Allow: allow, Sensitive: env.Sensitive},
 	}
 	outs, err := flow.CheckAll(ctx, lines, sched.Check.JudgeConcurrency)
 	res.Outcomes = outs
@@ -379,27 +399,10 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 	}
 	if status == "approved" {
 		// Memória: só de segmento aprovado; falha aqui não derruba o segmento.
-		p.remember(ctx, segID, outs, personas, lex)
+		p.remember(ctx, segID, outs, personas, lex, block.CastOrDefault())
+		p.moodAfter(ctx, outs, segFacts, block.CastOrDefault(), env.Sensitive, now)
 	}
 	return res, nil
-}
-
-// relevantAllow: termos da allowlist que aparecem nos fatos do segmento.
-func relevantAllow(allow []string, fs []facts.Fact) []string {
-	var text string
-	for _, f := range fs {
-		text += " " + f.Claim
-	}
-	out := []string{"Orlando", "Duda"}
-	seen := map[string]bool{}
-	for _, a := range allow {
-		k := textutil.Normalize(a)
-		if !seen[k] && len(k) > 2 && textutil.ContainsPhrase(text, a) {
-			seen[k] = true
-			out = append(out, a)
-		}
-	}
-	return out
 }
 
 func (p *Pipeline) env(ctx context.Context, block config.Block, lex *check.Lexicon, segFacts []facts.Fact, lines []check.Line, now time.Time) (*check.Env, error) {
@@ -422,6 +425,7 @@ func (p *Pipeline) env(ctx context.Context, block config.Block, lex *check.Lexic
 	return &check.Env{
 		Facts: factMap, SegmentFacts: segFacts, KnownEntities: known, Lex: lex,
 		ForbiddenPhrases: block.ForbiddenPhrases, Now: now, Loc: p.Env.Location,
+		Sensitive: facts.AnySensitive(segFacts),
 	}, nil
 }
 
@@ -515,7 +519,7 @@ func (p *Pipeline) persistOutcome(ctx context.Context, lineID int64, o check.Out
 	}
 }
 
-func (p *Pipeline) remember(ctx context.Context, segID int64, outs []check.Outcome, personas map[string]config.Persona, lex *check.Lexicon) {
+func (p *Pipeline) remember(ctx context.Context, segID int64, outs []check.Outcome, personas map[string]config.Persona, lex *check.Lexicon, cast []string) {
 	known, err := p.Store.AllEntities(ctx)
 	if err != nil {
 		slog.Warn("memória: entidades", "erro", err)
@@ -535,7 +539,7 @@ func (p *Pipeline) remember(ctx context.Context, segID int64, outs []check.Outco
 		return
 	}
 	for _, m := range mems {
-		if err := p.Store.InsertMemory(ctx, m, segID); err != nil {
+		if err := p.Store.InsertMemoryAbout(ctx, m, segID, store.Pair(cast)); err != nil {
 			slog.Warn("memória: gravação", "erro", err)
 		}
 	}
@@ -543,4 +547,45 @@ func (p *Pipeline) remember(ctx context.Context, segID int64, outs []check.Outco
 		_ = p.Store.Event(ctx, "memory_dropped", map[string]any{"segment_id": segID, "dropped": dropped})
 	}
 	_ = p.Store.RefreshSegmentCost(ctx, segID)
+}
+
+// MaxGagUsesWeek: uma piada recorrente vai ao ar no máximo 3 vezes por semana.
+const MaxGagUsesWeek = 3
+
+// moodAfter: o humor reage ao que foi ao ar (deterministico, sem LLM).
+// Cada provocação aceita aumenta a rivalidade do par e a irritação de quem
+// é provocado; mercado em queda irrita o Orlando; notícia sensível baixa o ânimo.
+func (p *Pipeline) moodAfter(ctx context.Context, outs []check.Outcome, segFacts []facts.Fact, cast []string, sensitive bool, now time.Time) {
+	d := map[string][3]float64{}
+	add := func(who string, i, a, r float64) {
+		v := d[who]
+		d[who] = [3]float64{v[0] + i, v[1] + a, v[2] + r}
+	}
+	for _, o := range outs {
+		if o.Status == "dropped" || o.Status == "removed" || o.Final.Type != check.TypeBanter {
+			continue
+		}
+		for _, c := range cast {
+			if c != o.Final.Speaker {
+				add(c, 0.2, 0, 0.2)
+			} else {
+				add(c, 0, 0.1, 0.1)
+			}
+		}
+	}
+	for _, f := range segFacts {
+		if f.Kind == facts.Market && f.Value != nil && *f.Value < 0 && strings.Contains(f.Unit, "%") {
+			add("orlando", 0.5, -0.3, 0)
+		}
+	}
+	if sensitive {
+		for _, c := range cast {
+			add(c, 0, -1, -0.5)
+		}
+	}
+	for who, v := range d {
+		if err := p.Store.NudgeMood(ctx, who, v[0], v[1], v[2], now); err != nil {
+			slog.Warn("humor", "erro", err)
+		}
+	}
 }

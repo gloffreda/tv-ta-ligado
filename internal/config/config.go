@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -66,7 +67,7 @@ func LoadEnv() (Env, error) {
 		return e, err
 	}
 	e.Prices = map[string]Price{e.ModelFast: fast, e.ModelSmart: smart}
-	if e.MaxDailyUSD, err = getFloat("MAX_DAILY_USD", 5.00); err != nil {
+	if e.MaxDailyUSD, err = getFloat("MAX_DAILY_USD", 8.00); err != nil {
 		return e, err
 	}
 	switch strings.ToLower(get("GENERATE", "on")) {
@@ -136,6 +137,14 @@ type Feeds struct {
 	RSS     []RSSFeed   `yaml:"rss"`
 	BCB     []BCBSeries `yaml:"bcb"`
 	Weather Weather     `yaml:"weather"`
+	Alerts  Alerts      `yaml:"alerts"`
+}
+
+// Alerts: avisos meteorológicos oficiais (INMET), lidos literalmente.
+type Alerts struct {
+	SourceName string `yaml:"source_name"`
+	URL        string `yaml:"url"`
+	Max        int    `yaml:"max"` // avisos guardados por rodada (os mais graves)
 }
 
 type RSSFeed struct {
@@ -224,6 +233,21 @@ type Block struct {
 	Instructions     string   `yaml:"instructions"`
 	ClosingLine      string   `yaml:"closing_line"`
 	ForbiddenPhrases []string `yaml:"forbidden_phrases"`
+	Cast             []string `yaml:"cast"`  // elenco do bloco (N personagens); padrão: lead + support
+	Scene            string   `yaml:"scene"` // cenário no player (estudio | tempo)
+	Data             string   `yaml:"data"`  // bloco de dados (weather | market | headlines): sem LLM
+}
+
+// CastOrDefault devolve o elenco do bloco.
+func (b Block) CastOrDefault() []string {
+	if len(b.Cast) > 0 {
+		return b.Cast
+	}
+	out := []string{b.Lead}
+	if b.Support != "" && b.Support != b.Lead {
+		out = append(out, b.Support)
+	}
+	return out
 }
 
 func (s Schedule) Block(name string) (Block, bool) {
@@ -264,9 +288,29 @@ type Persona struct {
 	Blocks       []string `yaml:"blocks" json:"blocks"`
 	Never        []string `yaml:"never" json:"never"`
 	Relationship string   `yaml:"relationship" json:"relationship"`
+	// Sprint 3: alvos permitidos do humor ácido e exemplos (few-shot) que vão ao roteirista.
+	Targets  []string  `yaml:"targets,omitempty" json:"targets,omitempty"`
+	Examples []Example `yaml:"examples,omitempty" json:"examples,omitempty"`
+	// Rigs do player: pixel (/) e vetor (/humano).
+	Rigs map[string]Rig `yaml:"rigs,omitempty" json:"-"`
 	// Voz (Sprint 2). Trocar a voz é só editar o YAML.
 	Voice          tts.Voice            `yaml:"voice" json:"-"`
 	FallbackVoices map[string]tts.Voice `yaml:"fallback_voices" json:"-"`
+}
+
+// Example: fala de referência (ok = pode; não = o tipo de piada proibida).
+type Example struct {
+	Fact string `yaml:"fact" json:"fact"`
+	Good string `yaml:"good" json:"good"`
+	Bad  string `yaml:"bad,omitempty" json:"bad,omitempty"`
+	Why  string `yaml:"why,omitempty" json:"why,omitempty"`
+}
+
+// Rig: aparência do personagem num renderizador.
+type Rig struct {
+	Sprite  string            `yaml:"sprite,omitempty" json:"sprite,omitempty"`
+	Palette map[string]string `yaml:"palette,omitempty" json:"palette,omitempty"`
+	Seat    string            `yaml:"seat,omitempty" json:"seat,omitempty"`
 }
 
 // Duration aceita "5m", "1h" no YAML.
@@ -375,8 +419,14 @@ func LoadAllowlist(dir string) ([]string, error) {
 		return nil, err
 	}
 	var out []string
-	for _, terms := range cats {
-		out = append(out, terms...)
+	// Ordem estável: a allowlist vai na parte cacheada do prompt.
+	keys := make([]string, 0, len(cats))
+	for k := range cats {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		out = append(out, cats[k]...)
 	}
 	return out, nil
 }

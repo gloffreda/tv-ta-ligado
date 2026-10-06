@@ -349,3 +349,43 @@ func TestDecide(t *testing.T) {
 		t.Fatal("economia sem a frase final deveria rejeitar")
 	}
 }
+
+// Dígitos dentro de sigla/código (g1, B3, G20, 5G) não são números.
+func TestAlnumCodesAreNotNumbers(t *testing.T) {
+	e := env(t)
+	f := facts.Fact{ID: 700, Kind: facts.Headline, Claim: "A B3 fechou em alta e a rede 5G chegou a mais cidades, segundo o g1.", SourceName: "g1",
+		Entities: []facts.Entity{{Name: "B3", Type: facts.Org}}, AsOf: testfix.Now, ExpiresAt: facts.NoExpiry}
+	e.Facts[700] = f
+	for _, text := range []string{
+		"O g1 informa que a B3 fechou em alta.",
+		"Segundo o g1, a rede 5G chegou a mais cidades.",
+		"A B3 fechou em alta, segundo o g1.",
+	} {
+		if r := Deterministic(Line{"orlando", TypeFact, text, []int64{700}}, e); !r.Passed {
+			t.Errorf("%q: %v", text, r.Reasons)
+		}
+	}
+	for _, text := range []string{"Tá no g1, Orlando!", "A cúpula do G20 é sempre uma novela.", "Já tem 4G aqui no estúdio?", "A B3 tá agitada hoje."} {
+		if r := Deterministic(Line{"duda", TypeBanter, text, nil}, e); !r.Passed {
+			t.Errorf("banter %q: %v", text, r.Reasons)
+		}
+	}
+}
+
+// Uma fala, um tipo: provocação + fato na mesma fala reprova.
+func TestFactLineMustStartWithFact(t *testing.T) {
+	e := env(t)
+	bad := Line{"orlando", TypeFact, "A cadeira está segura, Duda, e continuará sendo minha. O dólar comercial fechou em R$ 5,21, segundo o Banco Central.", []int64{1}}
+	if r := Deterministic(bad, e); r.Passed || !strings.Contains(strings.Join(r.Reasons, "|"), "mistura comentário e fato") {
+		t.Fatalf("deveria pedir para separar: %v", r.Reasons)
+	}
+	ok := Line{"orlando", TypeFact, "Boa noite. O dólar comercial fechou em R$ 5,21, segundo o Banco Central.", []int64{1}}
+	if r := Deterministic(ok, e); !r.Passed {
+		t.Fatalf("abertura curta antes do fato é permitida: %v", r.Reasons)
+	}
+	// Fonte com ponto no meio do nome não vira prenome solto ("Paulo").
+	e.Facts[701] = facts.Fact{ID: 701, Kind: facts.Headline, Claim: "Representantes de três setores relataram dificuldade de agenda.", SourceName: "Folha de S.Paulo", AsOf: testfix.Now, ExpiresAt: facts.NoExpiry}
+	if r := Deterministic(Line{"orlando", TypeFact, "Segundo a Folha de S.Paulo, representantes de três setores relataram dificuldade de agenda.", []int64{701}}, e); !r.Passed {
+		t.Fatalf("Folha de S.Paulo: %v", r.Reasons)
+	}
+}

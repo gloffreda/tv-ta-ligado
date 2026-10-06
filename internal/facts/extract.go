@@ -12,10 +12,11 @@ import (
 
 // Candidate é um fato proposto pelo LLM a partir do texto de uma fonte.
 type Candidate struct {
-	Claim    string   `json:"claim"`
-	Entities []Entity `json:"entities"`
-	Value    *float64 `json:"value"`
-	Unit     string   `json:"unit"`
+	Claim     string   `json:"claim"`
+	Entities  []Entity `json:"entities"`
+	Value     *float64 `json:"value"`
+	Unit      string   `json:"unit"`
+	Sensitive bool     `json:"sensitive"`
 }
 
 // ExtractionSchema é o JSON Schema da resposta do extrator.
@@ -29,7 +30,7 @@ const ExtractionSchema = `{
       "maxItems": 6,
       "items": {
         "type": "object",
-        "required": ["claim", "entities", "value", "unit"],
+        "required": ["claim", "entities", "value", "unit", "sensitive"],
         "additionalProperties": false,
         "properties": {
           "claim": {"type": "string", "minLength": 10, "maxLength": 400},
@@ -40,7 +41,8 @@ const ExtractionSchema = `{
               "type": {"enum": ["person", "org", "place", "other"]}
             }}},
           "value": {"type": ["number", "null"]},
-          "unit": {"type": "string"}
+          "unit": {"type": "string"},
+          "sensitive": {"type": "boolean"}
         }
       }
     }

@@ -36,7 +36,11 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 		Messages:  []anthropic.MessageParam{anthropic.NewUserMessage(anthropic.NewTextBlock(req.Prompt))},
 	}
 	if req.System != "" {
-		params.System = []anthropic.TextBlockParam{{Text: req.System}}
+		block := anthropic.TextBlockParam{Text: req.System}
+		if req.CacheSystem {
+			block.CacheControl = anthropic.NewCacheControlEphemeralParam()
+		}
+		params.System = []anthropic.TextBlockParam{block}
 	}
 	if req.Temperature != nil && SupportsTemperature(req.Model) {
 		params.Temperature = anthropic.Float(*req.Temperature)
@@ -49,9 +53,11 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 		return Response{}, fmt.Errorf("anthropic (%s): %w", req.Purpose, err)
 	}
 	r := Response{
-		Model:        string(msg.Model),
-		InputTokens:  int(msg.Usage.InputTokens + msg.Usage.CacheReadInputTokens + msg.Usage.CacheCreationInputTokens),
-		OutputTokens: int(msg.Usage.OutputTokens),
+		Model:            string(msg.Model),
+		InputTokens:      int(msg.Usage.InputTokens),
+		OutputTokens:     int(msg.Usage.OutputTokens),
+		CacheReadTokens:  int(msg.Usage.CacheReadInputTokens),
+		CacheWriteTokens: int(msg.Usage.CacheCreationInputTokens),
 	}
 	if msg.StopReason == anthropic.StopReasonRefusal {
 		return r, ErrRefused

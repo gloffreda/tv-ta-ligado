@@ -51,9 +51,11 @@ func ContractSchema(speakers []string, minLines, maxLines int) string {
 }
 
 type Input struct {
-	Block    config.Block
-	Facts    []facts.Fact
-	Memories []store.Memory
+	Block     config.Block
+	Facts     []facts.Fact
+	Memories  []store.Memory
+	Mood      map[string]store.Mood // humor do dia de cada personagem do elenco
+	Sensitive bool                  // modo sério: sem piada
 }
 
 type Writer struct {
@@ -61,15 +63,36 @@ type Writer struct {
 	Model    string
 	Schedule config.Schedule
 	Personas map[string]config.Persona
+	Allow    []string // allowlist (vai para a parte fixa e cacheada do prompt)
+	Cast     []string // elenco do bloco (vazio = todas as personas)
 }
 
 func (w *Writer) speakers() []string {
 	var ids []string
-	for id := range w.Personas {
-		ids = append(ids, id)
+	if len(w.Cast) > 0 {
+		ids = append(ids, w.Cast...)
+	} else {
+		for id := range w.Personas {
+			ids = append(ids, id)
+		}
 	}
 	sort.Strings(ids)
 	return ids
+}
+
+// system é a parte fixa do prompt (cacheada): regras, personas do elenco e allowlist.
+func (w *Writer) system() string {
+	var b strings.Builder
+	b.WriteString(writerSystem)
+	b.WriteString("\n\nPERSONAS (o campo speaker usa o id):\n")
+	for _, id := range w.speakers() {
+		pj, _ := json.Marshal(w.Personas[id])
+		fmt.Fprintf(&b, "- id=%s: %s\n", id, pj)
+	}
+	if len(w.Allow) > 0 {
+		fmt.Fprintf(&b, "\nTERMOS PERMITIDOS (organizações, lugares, siglas, veículos, avatares): %s\n", strings.Join(w.Allow, ", "))
+	}
+	return b.String()
 }
 
 // Validate aplica, além do schema, as regras do contrato que dependem de código.
@@ -126,6 +149,8 @@ Tipos de fala:
 - "banter": comentário, reação, transição ou piada entre os avatares. "fact_ids" vazio. Proibido em banter: números, datas, valores, nomes de pessoas reais, e qualquer afirmação nova sobre o mundo. Organizações e lugares só se estiverem nos fatos do segmento ou forem nomes comuns (Banco Central, Brasil, São Paulo). Os avatares podem chamar um ao outro pelo nome. Opinião, piada, exagero óbvio e brincadeira sobre os próprios avatares são permitidos.
 - GLOSSÁRIO: fatos de kind "glossary" são definições com fonte oficial. Quando a Duda "traduzir" um termo (Selic, IPCA, frente fria...), a fala é do tipo "fact" e cita o fact_id do glossário. Nunca explique um termo em banter.
 - Cada fala de transição deve fazer sentido sozinha: não prometa algo que depende da fala seguinte ("conta o resto", "vem aí...").
+- UMA FALA, UM TIPO: nunca misture provocação ou comentário com fato na mesma fala. Uma fala "fact" começa pelo fato (no máximo uma saudação curta antes, como "Boa noite."). Para comentar, use outra fala, do tipo "banter".
+- A piada vem depois do fato, nunca no lugar dele.
 
 Nunca zombe de pessoas reais. Nunca dê opinião política ou eleitoral. Nunca recomende investimentos.
 Responda apenas com o JSON do contrato, sem texto fora dele.`
@@ -133,18 +158,22 @@ Responda apenas com o JSON do contrato, sem texto fora dele.`
 func (w *Writer) prompt(in Input) string {
 	var b strings.Builder
 	seg := w.Schedule.Segment
-	fmt.Fprintf(&b, "BLOCO: %s\nQuem conduz: %s. Quem apoia: %s.\n%s\n", in.Block.Name, in.Block.Lead, in.Block.Support, strings.TrimSpace(in.Block.Instructions))
+	fmt.Fprintf(&b, "BLOCO: %s\nElenco: %s. Quem conduz: %s.\n%s\n", in.Block.Name, strings.Join(w.speakers(), ", "), in.Block.Lead, strings.TrimSpace(in.Block.Instructions))
 	if in.Block.ClosingLine != "" {
 		fmt.Fprintf(&b, "A última fala do bloco deve ser exatamente: %q (tipo banter, dita por %s).\n", in.Block.ClosingLine, in.Block.Lead)
 	}
+	if in.Sensitive {
+		b.WriteString("\nMODO SÉRIO: a pauta tem notícia de morte, violência, desastre ou doença. Nenhuma piada, ironia ou deboche no segmento inteiro; banter só para transição sóbria.\n")
+	}
 	fmt.Fprintf(&b, "\nTAMANHO: de %d a %d falas, totalizando entre %d e %d palavras (%d a %d segundos a %d palavras por minuto).\n",
 		seg.MinLines, seg.MaxLines, seg.MinSeconds*seg.WordsPerMinute/60, seg.MaxSeconds*seg.WordsPerMinute/60, seg.MinSeconds, seg.MaxSeconds, seg.WordsPerMinute)
-
-	b.WriteString("\nPERSONAS (o campo speaker usa o id):\n")
-	for _, id := range w.speakers() {
-		p := w.Personas[id]
-		pj, _ := json.Marshal(p)
-		fmt.Fprintf(&b, "- id=%s: %s\n", id, pj)
+	if len(in.Mood) > 0 {
+		b.WriteString("\nHUMOR DO DIA (0 a 10; use com sutileza, sem mudar a personalidade):\n")
+		for _, id := range w.speakers() {
+			if m, ok := in.Mood[id]; ok {
+				fmt.Fprintf(&b, "- %s: irritação %.0f, ânimo %.0f, rivalidade %.0f\n", id, m.Irritacao, m.Animo, m.Rivalidade)
+			}
+		}
 	}
 	b.WriteString("\nMEMÓRIAS DOS AVATARES (podem inspirar o banter):\n")
 	if len(in.Memories) == 0 {
@@ -177,7 +206,7 @@ func (w *Writer) Write(ctx context.Context, in Input) (Script, int, error) {
 		if lastErr != nil {
 			p += fmt.Sprintf("\nA resposta anterior foi recusada pelo validador: %v\nCorrija e responda de novo só com o JSON.\n", lastErr)
 		}
-		resp, err := w.LLM.Complete(ctx, llm.Request{Purpose: "script", Model: w.Model, System: writerSystem, Prompt: p, MaxTokens: 16000, Effort: "medium"})
+		resp, err := w.LLM.Complete(ctx, llm.Request{Purpose: "script", Model: w.Model, System: w.system(), Prompt: p, MaxTokens: 16000, Effort: "medium", CacheSystem: true})
 		if err != nil {
 			if llm.Fatal(err) {
 				return Script{}, attempt, err
@@ -212,11 +241,12 @@ var lineSchema = llm.MustSchema("line.json", `{
 
 // Rewriter implementa check.Rewriter usando os fatos do segmento.
 type Rewriter struct {
-	LLM   llm.Client
-	Model string
-	Block config.Block
-	Facts []facts.Fact
-	Allow []string // allowlist relevante (termos que aparecem no segmento + avatares)
+	LLM       llm.Client
+	Model     string
+	Block     config.Block
+	Facts     []facts.Fact
+	Allow     []string // allowlist inteira (parte fixa e cacheada do prompt)
+	Sensitive bool
 }
 
 const rulesFact = `REGRAS DA FALA "fact":
@@ -243,13 +273,13 @@ func (r *Rewriter) Rewrite(ctx context.Context, original, last check.Line, reaso
 		fmt.Fprintf(&b, "- %s\n", reason)
 	}
 	if original.Type == check.TypeBanter {
-		b.WriteString("\n" + rulesBanter + "\n")
+		b.WriteString("\nSiga as REGRAS DA FALA \"banter\".\n")
 	} else {
-		b.WriteString("\n" + rulesFact + "\n")
+		b.WriteString("\nSiga as REGRAS DA FALA \"fact\". Se a fala misturou comentário e fato, devolva só o fato.\n")
 	}
 	b.WriteString("\nPROIBIDO introduzir nomes de pessoas que não estejam na fala original ou nos fatos citados.\n")
-	if len(r.Allow) > 0 {
-		fmt.Fprintf(&b, "\nTermos permitidos (organizações, lugares, siglas, avatares): %s\n", strings.Join(r.Allow, ", "))
+	if r.Sensitive {
+		b.WriteString("MODO SÉRIO: sem piada, ironia ou deboche.\n")
 	}
 	if original.Type == check.TypeFact {
 		b.WriteString("\nFatos disponíveis:\n")
@@ -259,7 +289,11 @@ func (r *Rewriter) Rewrite(ctx context.Context, original, last check.Line, reaso
 		}
 	}
 	b.WriteString("\nReescreva a fala corrigindo os motivos, mantendo quem fala, o tipo e o tom. Na dúvida, diga menos: uma fala mais curta e certa é melhor. Responda apenas com JSON: {\"text\":\"...\",\"fact_ids\":[...]}")
-	resp, err := r.LLM.Complete(ctx, llm.Request{Purpose: "rewrite", Model: r.Model, System: writerSystem, Prompt: b.String(), MaxTokens: 4000, Effort: "low"})
+	sys := writerSystem + "\n\n" + rulesFact + "\n\n" + rulesBanter
+	if len(r.Allow) > 0 {
+		sys += "\n\nTERMOS PERMITIDOS (organizações, lugares, siglas, veículos, avatares): " + strings.Join(r.Allow, ", ")
+	}
+	resp, err := r.LLM.Complete(ctx, llm.Request{Purpose: "rewrite", Model: r.Model, System: sys, Prompt: b.String(), MaxTokens: 4000, Effort: "low", CacheSystem: true})
 	if err != nil {
 		return check.Line{}, err
 	}

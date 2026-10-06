@@ -27,3 +27,7 @@ voice:
   style: ""
 fallback_voices:
   kokoro: {provider: kokoro, name: pm_alex, rate: 0.92, pitch: -1}
+
+rigs:
+  pixel: {sprite: orlando, seat: left, palette: {suit: "#2C4740", tie: "#E5533D"}}
+  vector: {sprite: orlando, seat: left, palette: {suit: "#2C4740", tie: "#E5533D"}}

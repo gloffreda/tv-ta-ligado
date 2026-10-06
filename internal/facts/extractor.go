@@ -40,9 +40,12 @@ Regras:
 - "entities": todas as pessoas, organizações, siglas e lugares citados no fato, escritos exatamente como no texto, cada um com "type": "person" (pessoa real), "org" (organização, órgão, empresa, partido, time), "place" (lugar) ou "other" (índice, evento, programa, produto). Palavras comuns em minúsculas não são entidades.
 - "value": o principal número do fato, como número JSON (ex.: 5,43 vira 5.43; 2 bilhões vira 2000000000); null se não houver.
 - "unit": unidade do value ("%", "BRL", "USD", "pessoas"...) ou "".
+- NÃO expanda siglas nem abreviações (se o texto diz "MA", escreva "MA", nunca "Maranhão").
+- NÃO calcule nada: nada de somas, totais, diferenças ou porcentagens que o texto não traz escritos.
+- "sensitive": true se o fato envolve morte, violência, crime violento, desastre, acidente grave ou doença; senão false.
 - No máximo 4 fatos, priorizando os mais importantes.
 
-Responda apenas com JSON: {"facts":[{"claim":"...","entities":[{"name":"...","type":"person"}],"value":null,"unit":""}]}`
+Responda apenas com JSON: {"facts":[{"claim":"...","entities":[{"name":"...","type":"person"}],"value":null,"unit":"","sensitive":false}]}`
 
 type Extractor struct {
 	LLM   llm.Client
@@ -86,7 +89,7 @@ func (e *Extractor) Extract(ctx context.Context, src Source) ([]Fact, []string, 
 		id := src.ArticleID
 		kept = append(kept, Fact{
 			ArticleID: &id, Kind: Headline, Claim: strings.TrimSpace(c.Claim), Entities: c.Entities,
-			Value: c.Value, Unit: c.Unit, AsOf: asOf, SourceName: src.Credit, SourceURL: src.URL,
+			Value: c.Value, Unit: c.Unit, AsOf: asOf, SourceName: src.Credit, SourceURL: src.URL, Sensitive: c.Sensitive,
 			ExpiresAt: asOf.Add(TTL(Headline)),
 		})
 	}

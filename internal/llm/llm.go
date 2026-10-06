@@ -21,14 +21,19 @@ type Request struct {
 	MaxTokens   int
 	Temperature *float64 // só enviado a modelos que aceitam
 	Effort      string   // low|medium|high (modelos com adaptive thinking)
+	// CacheSystem marca o System (parte fixa: regras, personas, allowlist,
+	// glossário) para cache de prompt. Só cacheia acima do mínimo do modelo.
+	CacheSystem bool
 }
 
 type Response struct {
-	Text         string
-	Model        string
-	InputTokens  int
-	OutputTokens int
-	CostUSD      float64 // preenchido pelo Metered
+	Text             string
+	Model            string
+	InputTokens      int // sem os tokens de cache
+	OutputTokens     int
+	CacheReadTokens  int
+	CacheWriteTokens int
+	CostUSD          float64 // preenchido pelo Metered
 }
 
 type Client interface {
@@ -103,5 +108,5 @@ func (sc *Schema) Decode(text string, out any) error {
 // Fatal: erros que devem interromper a geração inteira (teto de orçamento,
 // contexto cancelado), em vez de só reprovar uma fala.
 func Fatal(err error) bool {
-	return errors.Is(err, ErrBudget) || errors.Is(err, ErrNoAPIKey) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
+	return errors.Is(err, ErrBudget) || errors.Is(err, ErrNoAPIKey) || err != nil && err.Error() == "no_active_session" || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }

@@ -41,7 +41,7 @@ type TimelineItem struct {
 // TimelineEnd: fim do último item agendado.
 func (s *Store) TimelineEnd(ctx context.Context) (time.Time, bool, error) {
 	var t *time.Time
-	err := s.DB.QueryRow(ctx, `SELECT max(ends_at) FROM timeline`).Scan(&t)
+	err := s.DB.QueryRow(ctx, `SELECT max(ends_at) FROM timeline WHERE status <> 'skipped'`).Scan(&t)
 	if err != nil || t == nil {
 		return time.Time{}, false, err
 	}
@@ -69,7 +69,7 @@ func (s *Store) InsertTimelineItem(ctx context.Context, it TimelineItem) (int64,
 
 // LastStartByBlock: último início agendado (estreia ou reprise) de cada bloco.
 func (s *Store) LastStartByBlock(ctx context.Context) (map[string]time.Time, error) {
-	rows, err := s.DB.Query(ctx, `SELECT block, max(starts_at) FROM timeline WHERE block IS NOT NULL GROUP BY block`)
+	rows, err := s.DB.Query(ctx, `SELECT block, max(starts_at) FROM timeline WHERE block IS NOT NULL AND status <> 'skipped' GROUP BY block`)
 	if err != nil {
 		return nil, err
 	}
@@ -98,25 +98,38 @@ const voicedApproved = `s.status='approved'
   AND NOT EXISTS (SELECT 1 FROM lines l LEFT JOIN line_audio la ON la.line_id=l.id
                   WHERE l.segment_id=s.id AND l.status IN ('ok','rewritten') AND la.line_id IS NULL)`
 
-// FreshSegments: aprovados, com voz, ainda nunca agendados.
-func (s *Store) FreshSegments(ctx context.Context) ([]ReadySegment, error) {
+// factsValidAt: todas as falas que vão ao ar citam fatos válidos em $at.
+const factsValidAt = `NOT EXISTS (SELECT 1 FROM lines l JOIN line_claims lc ON lc.line_id=l.id JOIN facts f ON f.id=lc.fact_id
+	WHERE l.segment_id=s.id AND l.status IN ('ok','rewritten') AND f.expires_at <= $1)`
+
+// FreshSegments: aprovados, com voz, nunca agendados (itens tirados do ar não
+// contam), criados nas últimas 24 h, de uma origem (llm ou data), com fatos
+// válidos em `at`.
+func (s *Store) FreshSegments(ctx context.Context, at time.Time, origin string) ([]ReadySegment, error) {
 	return s.ready(ctx, `SELECT s.id, s.block, s.created_at FROM segments s WHERE `+voicedApproved+`
-		AND NOT EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id) ORDER BY s.created_at, s.id`)
+		AND s.origin = $2 AND s.created_at >= $3 AND `+factsValidAt+`
+		AND NOT EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped')
+		ORDER BY s.created_at, s.id`, at, origin, at.Add(-24*time.Hour))
 }
 
-// ReplayCandidates: aprovados com voz que já foram ao ar, criados na janela, sem exibição nos
-// últimos `gap` antes de `at` e com todos os fatos citados válidos em `at`.
-// Os menos exibidos (e há mais tempo) vêm primeiro.
+// ReplayCandidates: aprovados com voz que já foram ao ar, criados na janela,
+// sem exibição nos últimos `gap` antes de `at` e com fatos válidos em `at`.
 func (s *Store) ReplayCandidates(ctx context.Context, at time.Time, window, gap time.Duration) ([]ReadySegment, error) {
 	return s.ready(ctx, `SELECT s.id, s.block, s.created_at FROM segments s WHERE `+voicedApproved+`
-		AND s.created_at >= $1
-		AND EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id)  -- reprise só do que já foi ao ar
-		AND NOT EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id AND t.starts_at > $2)
-		AND NOT EXISTS (SELECT 1 FROM lines l JOIN line_claims lc ON lc.line_id=l.id JOIN facts f ON f.id=lc.fact_id
-		                WHERE l.segment_id=s.id AND l.status IN ('ok','rewritten') AND f.expires_at <= $3)
-		ORDER BY (SELECT max(starts_at) FROM timeline t WHERE t.segment_id=s.id) NULLS FIRST,
-		         (SELECT count(*) FROM timeline t WHERE t.segment_id=s.id), s.id DESC`,
-		at.Add(-window), at.Add(-gap), at)
+		AND s.created_at >= $2 AND `+factsValidAt+`
+		AND EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped' AND t.starts_at <= $1)
+		AND NOT EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped' AND t.starts_at > $3)
+		ORDER BY (SELECT max(starts_at) FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped') NULLS FIRST,
+		         (SELECT count(*) FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped'), s.id DESC`,
+		at, at.Add(-window), at.Add(-gap))
+}
+
+// HasHistory: houve algum item no ar entre `at-6h` e `at-60min` (senão é partida a frio).
+func (s *Store) HasHistory(ctx context.Context, at time.Time) (bool, error) {
+	var ok bool
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM timeline WHERE status <> 'skipped' AND kind IN ('segment','data','replay')
+		AND starts_at > $1 AND starts_at <= $2)`, at.Add(-6*time.Hour), at.Add(-time.Hour)).Scan(&ok)
+	return ok, err
 }
 
 func (s *Store) ready(ctx context.Context, q string, args ...any) ([]ReadySegment, error) {
@@ -167,7 +180,7 @@ func (s *Store) MarkAired(ctx context.Context, now time.Time) error {
 // TimelineRange: itens que cruzam [from, to), com falas, visemas e fontes.
 func (s *Store) TimelineRange(ctx context.Context, from, to time.Time) ([]TimelineItem, error) {
 	rows, err := s.DB.Query(ctx, `SELECT id, kind, segment_id, block, starts_at, ends_at, status FROM timeline
-		WHERE ends_at > $1 AND starts_at < $2 ORDER BY starts_at`, from, to)
+		WHERE ends_at > $1 AND starts_at < $2 AND status <> 'skipped' ORDER BY starts_at`, from, to)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +246,7 @@ func (s *Store) TimelineGaps(ctx context.Context, from, to time.Time) (int, time
 	var n int
 	var total float64
 	err := s.DB.QueryRow(ctx, `SELECT count(*), COALESCE(sum(extract(epoch FROM gap)),0) FROM (
-		SELECT starts_at - lag(ends_at) OVER (ORDER BY starts_at) AS gap FROM timeline WHERE starts_at >= $1 AND starts_at < $2) g
+		SELECT starts_at - lag(ends_at) OVER (ORDER BY starts_at) AS gap FROM timeline WHERE starts_at >= $1 AND starts_at < $2 AND status <> 'skipped') g
 		WHERE gap > interval '0'`, from, to).Scan(&n, &total)
 	return n, time.Duration(total * float64(time.Second)), err
 }
@@ -241,7 +254,7 @@ func (s *Store) TimelineGaps(ctx context.Context, from, to time.Time) (int, time
 // MaxTimelineID ajuda o SSE a detectar itens novos.
 func (s *Store) MaxTimelineID(ctx context.Context) (int64, error) {
 	var id *int64
-	err := s.DB.QueryRow(ctx, `SELECT max(id) FROM timeline`).Scan(&id)
+	err := s.DB.QueryRow(ctx, `SELECT max(id) FROM timeline WHERE status <> 'skipped'`).Scan(&id)
 	if id == nil {
 		return 0, err
 	}
@@ -250,7 +263,7 @@ func (s *Store) MaxTimelineID(ctx context.Context) (int64, error) {
 
 // TimelineKinds: itens por tipo que começam em [from, to).
 func (s *Store) TimelineKinds(ctx context.Context, from, to time.Time) (map[string]int, error) {
-	rows, err := s.DB.Query(ctx, `SELECT kind, count(*) FROM timeline WHERE starts_at >= $1 AND starts_at < $2 GROUP BY kind`, from, to)
+	rows, err := s.DB.Query(ctx, `SELECT kind, count(*) FROM timeline WHERE starts_at >= $1 AND starts_at < $2 AND status <> 'skipped' GROUP BY kind`, from, to)
 	if err != nil {
 		return nil, err
 	}

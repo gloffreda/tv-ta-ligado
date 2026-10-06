@@ -72,6 +72,13 @@ bcb:
     entities: [Banco Central, IPCA]
     claim: "O IPCA, índice oficial de inflação, variou {valor}% em {mes_ano}, segundo dados do Banco Central."
 
+# Avisos meteorológicos oficiais do INMET (podem ser reproduzidos citando a
+# fonte). Viram fatos kind=alert, lidos literalmente pela Glória.
+alerts:
+  source_name: INMET
+  url: https://apiprevmet3.inmet.gov.br/avisos/ativos
+  max: 3
+
 weather:
   source_name: Open-Meteo
   url: https://api.open-meteo.com/v1/forecast

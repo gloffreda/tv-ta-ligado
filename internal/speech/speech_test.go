@@ -66,14 +66,16 @@ func TestNormalize(t *testing.T) {
 		{"No Rio de Janeiro, máxima de 25,3 °C e 47% de chance de chuva.", "No Rio de Janeiro, máxima de vinte e cinco vírgula três graus e quarenta e sete por cento de chance de chuva."},
 		{"O IPCA variou -0,32% em agosto de 2026.", "O í-pê-cê-á variou menos zero vírgula trinta e dois por cento em agosto de dois mil e vinte e seis."},
 		{"Em Janeiro, perto de Março, nada de números.", "Em Janeiro, perto de Março, nada de números."},
+		{"Segundo o g1, a B3 subiu 1,2%.", "Segundo o gê um, a bê três subiu um vírgula dois por cento."},
+		{"A rede 5G chegou, diz o Poder360.", "A rede cinco gê chegou, diz o poder trezentos e sessenta."},
 	}
 	for _, c := range cases {
-		got := Normalize(c.in, d)
+		got, err := NormalizeChecked(c.in, d)
 		if got != c.want {
 			t.Errorf("Normalize(%q)\n got  %q\n want %q", c.in, got, c.want)
 			continue
 		}
-		if err := VerifyNumbers(c.in, got); err != nil {
+		if err != nil {
 			t.Errorf("verificação %q → %q: %v", c.in, got, err)
 		}
 	}

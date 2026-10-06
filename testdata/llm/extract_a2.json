@@ -9,12 +9,14 @@
      "type": "org"
     }
    ],
+   "sensitive": false,
    "value": null,
    "unit": ""
   },
   {
    "claim": "O filhote de panda-vermelho pesa 110 gramas e passa bem.",
    "entities": [],
+   "sensitive": false,
    "value": 110,
    "unit": "gramas"
   },
@@ -26,6 +28,7 @@
      "type": "org"
     }
    ],
+   "sensitive": false,
    "value": 12,
    "unit": "anos"
   }

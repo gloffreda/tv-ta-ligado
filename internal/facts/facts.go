@@ -20,6 +20,7 @@ const (
 	Market   Kind = "market"
 	Weather  Kind = "weather"
 	Glossary Kind = "glossary" // definição com fonte oficial, sem validade
+	Alert    Kind = "alert"    // aviso oficial (INMET), lido literalmente
 )
 
 // NoExpiry é a "validade nula" do glossário.
@@ -58,6 +59,16 @@ func Names(es []Entity) []string {
 	return out
 }
 
+// AnySensitive: algum fato é sensível (modo sério).
+func AnySensitive(fs []Fact) bool {
+	for _, f := range fs {
+		if f.Sensitive {
+			return true
+		}
+	}
+	return false
+}
+
 // HasPerson: algum fato cita uma pessoa.
 func HasPerson(fs []Fact) bool {
 	for _, f := range fs {
@@ -94,6 +105,7 @@ type Fact struct {
 	SourceName string    `json:"source_name"`
 	SourceURL  string    `json:"source_url"`
 	Series     string    `json:"series,omitempty"`
+	Sensitive  bool      `json:"sensitive,omitempty"` // morte, violência, desastre ou doença
 	CreatedAt  time.Time `json:"created_at"`
 	ExpiresAt  time.Time `json:"expires_at"`
 }

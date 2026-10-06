@@ -39,7 +39,7 @@ func TestCasesShape(t *testing.T) {
 			t.Errorf("%s: %d casos, want %d", f, got[f], n)
 		}
 	}
-	if len(cs) != 60 {
+	if len(cs) != 73 {
 		t.Fatalf("total %d", len(cs))
 	}
 	// As 10 corretas passam no estágio determinístico (senão seriam FP sem juiz).

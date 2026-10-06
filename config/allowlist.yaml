@@ -11,6 +11,9 @@ programa:
   - Duda
   - Duda Faísca
   - Faísca
+  - Glória
+  - Glória Garoa
+  - Garoa
 
 instituicoes:
   - Banco Central
@@ -74,6 +77,34 @@ instituicoes:
   - Pix
   - Selic
   - Focus
+
+# Veículos citados como fonte no ar.
+veiculos:
+  - g1
+  - Agência Brasil
+  - CNN Brasil
+  - Poder360
+  - Folha de S.Paulo
+  - Folha
+  - Estadão
+  - BBC News Brasil
+  - BBC
+  - RFI
+  - Banco Central (SGS)
+  - INMET
+  - Open-Meteo
+
+# Códigos com dígitos: não são números.
+codigos:
+  - g1
+  - B3
+  - G20
+  - G7
+  - 4G
+  - 5G
+  - COP30
+  - IPCA-15
+  - Poder360
 
 siglas:
   - BC

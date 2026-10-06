@@ -48,6 +48,10 @@ func TestExtract(t *testing.T) {
 		{"a covid-19 voltou", []want{{Plain, 19, 0, false, DateParts{}}}},
 		{"máxima de 27 °C e 40% de chance de chuva", []want{{Plain, 27, 0, false, DateParts{}}, {Percent, 40, 0, false, DateParts{}}}},
 		{"nenhum número aqui, só conversa", nil},
+		{"o g1 informa", nil},
+		{"a B3 fechou", nil},
+		{"cúpula do G20", nil},
+		{"a COP30 em Belém", nil},
 		{"uma ideia e um café", nil},
 		{"em dezembro, talvez", nil},
 	}

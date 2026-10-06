@@ -1,6 +1,7 @@
 package check
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -20,6 +21,7 @@ func tokenize(text string) []token {
 	var out []token
 	start := true
 	var cur strings.Builder
+	rs := []rune(text)
 	flush := func() {
 		if cur.Len() > 0 {
 			out = append(out, token{word: cur.String(), sentenceStart: start})
@@ -27,10 +29,12 @@ func tokenize(text string) []token {
 			cur.Reset()
 		}
 	}
-	for _, r := range text {
+	for i, r := range rs {
 		switch {
 		case unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '\'' || r == '’':
 			cur.WriteRune(r)
+		case r == '.' && cur.Len() > 0 && i+1 < len(rs) && unicode.IsUpper(rs[i+1]):
+			cur.WriteRune(r) // "S.Paulo", "U.S.A." fazem parte do nome
 		default:
 			flush()
 			switch r {
@@ -63,7 +67,33 @@ type Lexicon struct {
 	allow    map[string]bool
 	maxWords int
 	first    map[string]bool
+	codes    []string // termos da allowlist com dígitos (g1, B3, 4G, G20)
 }
+
+var hasDigit = func(s string) bool {
+	for _, r := range s {
+		if unicode.IsDigit(r) {
+			return true
+		}
+	}
+	return false
+}
+
+// MaskCodes troca os códigos alfanuméricos da allowlist por espaço, para não
+// serem lidos como número (4G, 5G, B3, IPCA-15).
+func (lx *Lexicon) MaskCodes(text string) string {
+	if lx == nil {
+		return text
+	}
+	for _, c := range lx.codes {
+		re := regexp.MustCompile(`(^|[^\p{L}\p{N}])` + regexp.QuoteMeta(c) + `($|[^\p{L}\p{N}])`)
+		text = re.ReplaceAllString(text, "${1} ${2}")
+	}
+	return text
+}
+
+// Codes devolve os termos da allowlist com dígitos.
+func (lx *Lexicon) Codes() []string { return lx.codes }
 
 // NewLexicon: allow são termos permitidos (instituições, lugares, meses,
 // avatares…); firstNames, prenomes de pessoas.
@@ -81,6 +111,9 @@ func NewLexicon(allow, firstNames []string) *Lexicon {
 }
 
 func (lx *Lexicon) add(a string) {
+	if hasDigit(a) {
+		lx.codes = append(lx.codes, strings.TrimSpace(a))
+	}
 	k := textutil.Normalize(a)
 	if k == "" {
 		return

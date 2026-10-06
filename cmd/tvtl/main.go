@@ -393,7 +393,7 @@ func (a *app) stats(ctx context.Context) error {
 	return w.Flush()
 }
 
-var speakerNames = map[string]string{"orlando": "ORLANDO", "duda": "DUDA"}
+var speakerNames = map[string]string{"orlando": "ORLANDO", "duda": "DUDA", "gloria": "GLÓRIA"}
 
 func printSegments(w io.Writer, segs []store.SegmentView, loc *time.Location) {
 	if len(segs) == 0 {

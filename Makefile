@@ -65,7 +65,7 @@ bench: build
 	$(COMPOSE) --profile chatterbox --profile piper up -d tts-chatterbox tts-kokoro tts-piper
 	$(COMPOSE) run --rm -T tvtl tts-bench --providers chatterbox,kokoro,piper --seconds 60
 
-## audit: 60 casos adversariais contra o juiz REAL (custa API). BANTER_MODEL=... para comparar.
+## audit: 73 casos adversariais contra o juiz REAL (custa API). BANTER_MODEL=... para comparar.
 audit: build
 	$(COMPOSE) run --rm -T -v $(CURDIR)/testdata:/app/testdata:ro tvtl audit --dir testdata/adversarial $(if $(BANTER_MODEL),--banter-model $(BANTER_MODEL))
 

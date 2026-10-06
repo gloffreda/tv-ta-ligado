@@ -16,6 +16,7 @@
      "type": "place"
     }
    ],
+   "sensitive": false,
    "value": 1250,
    "unit": "metros"
   },
@@ -31,18 +32,21 @@
      "type": "place"
     }
    ],
+   "sensitive": false,
    "value": 48600000,
    "unit": "BRL"
   },
   {
    "claim": "A ponte deve atender 30 mil motoristas por dia.",
    "entities": [],
+   "sensitive": false,
    "value": 30000,
    "unit": "motoristas"
   },
   {
    "claim": "A ponte tem 4 faixas e custou R$ 50 milhões.",
    "entities": [],
+   "sensitive": false,
    "value": 50000000,
    "unit": "BRL"
   }

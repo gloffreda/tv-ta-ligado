@@ -29,6 +29,10 @@ type Ingester struct {
 	Now   func() time.Time
 	// MaxAge: itens de RSS mais velhos que isso são ignorados.
 	MaxAge time.Duration
+	// Gate recusa a ingestão fora de sessão (RUN_MODE=on_demand).
+	Gate interface {
+		Allow(ctx context.Context, what string) error
+	}
 }
 
 type Report struct {
@@ -36,6 +40,7 @@ type Report struct {
 	Duplicates   int
 	MarketFacts  int
 	WeatherFacts int // capitais com previsão gravada (nova ou reconfirmada)
+	AlertFacts   int // avisos do INMET gravados
 	Failures     []string
 }
 
@@ -49,6 +54,12 @@ func (in *Ingester) now() time.Time {
 // RunOnce faz uma rodada completa. Falha de uma fonte não derruba as outras.
 func (in *Ingester) RunOnce(ctx context.Context) Report {
 	var r Report
+	if in.Gate != nil {
+		if err := in.Gate.Allow(ctx, "ingest"); err != nil {
+			r.Failures = append(r.Failures, err.Error())
+			return r
+		}
+	}
 	for _, f := range in.Feeds.RSS {
 		n, d, err := in.rss(ctx, f)
 		r.Articles += n
@@ -69,6 +80,13 @@ func (in *Ingester) RunOnce(ctx context.Context) Report {
 		r.WeatherFacts = n
 		if err != nil {
 			in.fail(ctx, &r, in.Feeds.Weather.SourceName, err)
+		}
+	}
+	if in.Feeds.Alerts.URL != "" {
+		n, err := in.alerts(ctx)
+		r.AlertFacts = n
+		if err != nil {
+			in.fail(ctx, &r, in.Feeds.Alerts.SourceName, err)
 		}
 	}
 	return r

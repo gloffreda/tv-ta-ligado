@@ -66,7 +66,7 @@ func TestPromptOnlyHasRundownFacts(t *testing.T) {
 	if !strings.Contains(p, fs[0].Claim) || strings.Contains(p, "Marta Quintela") {
 		t.Fatal("o prompt deve ter só os fatos da pauta")
 	}
-	if !strings.Contains(p, "Isso está checado? Então eu leio.") {
+	if !strings.Contains(m.Calls[0].System, "Isso está checado? Então eu leio.") || !m.Calls[0].CacheSystem {
 		t.Fatal("o prompt deve carregar as personas do YAML")
 	}
 }
@@ -145,7 +145,7 @@ func TestRewriterPromptHasAllRules(t *testing.T) {
 	if _, err := r.Rewrite(context.Background(), orig, orig, []string{"banter com prenome de pessoa: \"Léo\""}); err != nil {
 		t.Fatal(err)
 	}
-	p := m.Calls[0].Prompt
+	p := m.Calls[0].System + m.Calls[0].Prompt
 	for _, want := range []string{"Léo", "REGRAS DA FALA \"banter\"", "Nenhum número", "PROIBIDO introduzir nomes de pessoas", "Banco Central, São Paulo"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt de reescrita sem %q", want)

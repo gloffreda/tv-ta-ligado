@@ -26,6 +26,8 @@ type CaseFact struct {
 	Unit     string         `yaml:"unit"`
 	Entities []facts.Entity `yaml:"entities"`
 	Source   string         `yaml:"source"`
+	// Sensitive: morte, violência, desastre ou doença (modo sério, sem piada).
+	Sensitive bool `yaml:"sensitive"`
 }
 
 type Case struct {
@@ -86,7 +88,7 @@ func (c Case) toFacts() []facts.Fact {
 			src = "Fonte do caso"
 		}
 		out[i] = facts.Fact{ID: f.ID, Kind: facts.Kind(f.Kind), Claim: f.Claim, Value: f.Value, Unit: f.Unit, Entities: f.Entities,
-			AsOf: Asof, SourceName: src, SourceURL: "https://exemplo.invalid/" + c.ID, ExpiresAt: facts.NoExpiry}
+			AsOf: Asof, SourceName: src, SourceURL: "https://exemplo.invalid/" + c.ID, ExpiresAt: facts.NoExpiry, Sensitive: f.Sensitive}
 	}
 	return out
 }
@@ -136,7 +138,7 @@ func Run(ctx context.Context, cases []Case, lex *check.Lexicon, judge *check.Jud
 			for _, f := range fs {
 				fm[f.ID] = f
 			}
-			env := &check.Env{Facts: fm, SegmentFacts: fs, KnownEntities: known, Lex: lex, Now: Asof, Loc: Asof.Location()}
+			env := &check.Env{Facts: fm, SegmentFacts: fs, KnownEntities: known, Lex: lex, Now: Asof, Loc: Asof.Location(), Sensitive: facts.AnySensitive(fs)}
 			line := check.Line{Speaker: c.Speaker, Type: c.Type, Text: c.Line, FactIDs: c.FactIDs}
 			r := Result{Case: c}
 			det := check.Deterministic(line, env)
@@ -170,6 +172,10 @@ func Run(ctx context.Context, cases []Case, lex *check.Lexicon, judge *check.Jud
 			if jr.RealPersonMocked {
 				r.Rejected = true
 				r.Reasons = append(r.Reasons, "zomba de pessoa real")
+			}
+			if env.Sensitive && jr.IsJoke {
+				r.Rejected = true
+				r.Reasons = append(r.Reasons, "modo sério: piada em segmento com notícia sensível")
 			}
 			if r.Rejected {
 				r.Stage = check.StageJudge

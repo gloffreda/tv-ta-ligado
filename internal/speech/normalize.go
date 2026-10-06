@@ -141,6 +141,54 @@ func sayMoney(sym, sign, num, scale string) string {
 // Normalize devolve o texto para falar. O texto checado nunca é alterado: o
 // chamador guarda os dois (text e spoken_text).
 func Normalize(text string, d Dict) string {
+	s, _ := NormalizeChecked(text, d)
+	return s
+}
+
+// NormalizeChecked normaliza e confere os números falados contra o texto
+// checado ANTES do dicionário de pronúncia (que só troca siglas: "B3" → "bê
+// três" não é um número novo).
+func NormalizeChecked(text string, d Dict) (string, error) {
+	masked, codes := maskCodes(text, d)
+	pre := normalizeNumbers(masked)
+	spoken := finish(applyDict(unmask(pre, codes, true), d))
+	return spoken, VerifyNumbers(unmask(masked, codes, false), finish(unmask(pre, codes, false)))
+}
+
+// maskCodes protege termos do dicionário que têm dígitos (5G, B3, g1) da
+// conversão de números: viram marcadores e voltam depois com a pronúncia.
+func maskCodes(text string, d Dict) (string, []string) {
+	var codes []string
+	for k := range d.Terms {
+		if strings.IndexFunc(k, func(r rune) bool { return r >= '0' && r <= '9' }) >= 0 {
+			codes = append(codes, k)
+		}
+	}
+	sort.Slice(codes, func(i, j int) bool { return len(codes[i]) > len(codes[j]) })
+	for i, c := range codes {
+		re := regexp.MustCompile(`(^|[^\p{L}\p{N}])` + regexp.QuoteMeta(c) + `($|[^\p{L}\p{N}])`)
+		for re.MatchString(text) {
+			text = re.ReplaceAllString(text, "${1}\x00"+string(rune('A'+i))+"\x00${2}")
+		}
+	}
+	return text, codes
+}
+
+// unmask devolve os códigos: com pronúncia (keep) ou removidos (para a verificação).
+func unmask(s string, codes []string, keep bool) string {
+	for i, c := range codes {
+		rep := ""
+		if keep {
+			rep = c
+		}
+		s = strings.ReplaceAll(s, "\x00"+string(rune('A'+i))+"\x00", rep)
+	}
+	return s
+}
+
+func finish(s string) string { return strings.TrimSpace(reSpaces.ReplaceAllString(s, " ")) }
+
+func normalizeNumbers(text string) string {
 	s := reHyphenNum.ReplaceAllString(text, "$1 $2")
 	s = reISO.ReplaceAllStringFunc(s, func(m string) string {
 		p := reISO.FindStringSubmatch(m)
@@ -222,9 +270,7 @@ func Normalize(text string, d Dict) string {
 		}
 		return out + next
 	})
-	s = strings.ReplaceAll(s, "às uma hora", "à uma hora")
-	s = applyDict(s, d)
-	return strings.TrimSpace(reSpaces.ReplaceAllString(s, " "))
+	return strings.ReplaceAll(s, "às uma hora", "à uma hora")
 }
 
 func signWord(sign string) string {

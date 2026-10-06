@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gloffreda/tv-ta-ligado/internal/audio"
 	"github.com/gloffreda/tv-ta-ligado/internal/config"
@@ -36,6 +37,10 @@ type Voicer struct {
 	Dict     speech.Dict
 	Ledger   llm.Ledger
 	Budget   interface{ CheckBudget(context.Context) error }
+	Gate     interface {
+		Allow(ctx context.Context, what string) error
+	}
+	Now func() time.Time
 }
 
 // Ext é a extensão dos arquivos de mídia (Opus em Ogg).
@@ -50,8 +55,8 @@ func Hash(v tts.Voice, spoken string) string {
 // Spoken devolve o texto para falar. Se a verificação de números falhar, usa o
 // texto checado como está (nunca fala um número diferente do checado).
 func (v *Voicer) Spoken(ctx context.Context, text string) string {
-	spoken := speech.Normalize(text, v.Dict)
-	if err := speech.VerifyNumbers(text, spoken); err != nil {
+	spoken, err := speech.NormalizeChecked(text, v.Dict)
+	if err != nil {
 		slog.Warn("normalização divergente; falando o texto checado", "texto", text, "erro", err)
 		if v.Ledger != nil {
 			_ = v.Ledger.Event(ctx, "speech_mismatch", map[string]string{"text": text, "spoken": spoken, "error": err.Error()})
@@ -66,6 +71,11 @@ func (v *Voicer) Spoken(ctx context.Context, text string) string {
 func (v *Voicer) Asset(ctx context.Context, primary tts.Voice, fallbacks map[string]tts.Voice, spoken string, segmentID *int64) (store.AudioAsset, bool, error) {
 	if a, ok, err := v.cached(ctx, Hash(primary, spoken)); err != nil || ok {
 		return a, ok, err
+	}
+	if v.Gate != nil {
+		if err := v.Gate.Allow(ctx, "tts"); err != nil {
+			return store.AudioAsset{}, false, err
+		}
 	}
 	if v.Budget != nil {
 		if err := v.Budget.CheckBudget(ctx); err != nil {
@@ -109,6 +119,9 @@ func (v *Voicer) Asset(ctx context.Context, primary tts.Voice, fallbacks map[str
 	}
 	if v.Ledger != nil {
 		call := llm.LLMCall{Purpose: "tts", Model: res.Voice.Provider + ":" + res.Voice.Name, InputTokens: len([]rune(spoken)), CostUSD: res.CostUSD, SegmentID: segmentID}
+		if v.Now != nil {
+			call.At = v.Now()
+		}
 		if err := v.Ledger.RecordLLMCall(ctx, call); err != nil {
 			slog.Warn("registrar custo de TTS", "erro", err)
 		}

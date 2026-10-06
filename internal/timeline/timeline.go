@@ -38,6 +38,9 @@ type Scheduler struct {
 	Bumper   func(ctx context.Context) (BumperAudio, error)
 	Now      func() time.Time
 	OnEvent  func(kind string, detail map[string]any)
+	Gate     interface {
+		Allow(ctx context.Context, what string) error
+	}
 
 	mu        sync.Mutex
 	minBuffer time.Duration
@@ -80,6 +83,11 @@ func (c Config) Lines(ls []store.TimelineLine) ([]store.TimelineLine, time.Durat
 // Fill agenda itens no fim da linha do tempo até cobrir `until` (padrão:
 // agora + BUFFER_MIN). Nada já agendado muda.
 func (s *Scheduler) Fill(ctx context.Context, until time.Time) ([]store.TimelineItem, error) {
+	if s.Gate != nil {
+		if err := s.Gate.Allow(ctx, "timeline"); err != nil {
+			return nil, err
+		}
+	}
 	now := s.now()
 	if until.IsZero() {
 		until = now.Add(s.Cfg.BufferMin + s.Cfg.FillMargin)
@@ -158,6 +166,8 @@ func (s *Scheduler) pickBlock(at time.Time, last map[string]time.Time, cands []s
 	return best, found
 }
 
+// next escolhe o item que começa em `at`: estreia → segmento de dados →
+// reprise → vinheta. No bloqueio eleitoral, só reprise e vinheta.
 func (s *Scheduler) next(ctx context.Context, at time.Time) (store.TimelineItem, error) {
 	last, err := s.Store.LastStartByBlock(ctx)
 	if err != nil {
@@ -165,15 +175,21 @@ func (s *Scheduler) next(ctx context.Context, at time.Time) (store.TimelineItem,
 	}
 	_, blackout := s.Blackout().Active(at)
 	if !blackout {
-		fresh, err := s.Store.FreshSegments(ctx)
-		if err != nil {
-			return store.TimelineItem{}, err
-		}
-		if seg, ok := s.pickBlock(at, last, fresh); ok {
-			return s.segmentItem(ctx, "segment", seg, at)
+		for _, o := range []struct{ origin, kind string }{{"llm", "segment"}, {"data", "data"}} {
+			fresh, err := s.Store.FreshSegments(ctx, at, o.origin)
+			if err != nil {
+				return store.TimelineItem{}, err
+			}
+			if seg, ok := s.pickBlock(at, last, fresh); ok {
+				return s.segmentItem(ctx, o.kind, seg, at)
+			}
 		}
 	}
-	replays, err := s.Store.ReplayCandidates(ctx, at, s.Cfg.ReplayWindow, s.Cfg.ReplayGap)
+	window := s.Cfg.ReplayWindow
+	if hist, err := s.Store.HasHistory(ctx, at); err == nil && !hist {
+		window = 24 * time.Hour // partida a frio: reprise das últimas 24 h
+	}
+	replays, err := s.Store.ReplayCandidates(ctx, at, window, s.Cfg.ReplayGap)
 	if err != nil {
 		return store.TimelineItem{}, err
 	}

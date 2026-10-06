@@ -1,6 +1,6 @@
 # Auditoria adversarial do checador
 
-60 casos: fatos de entrada, uma fala e o veredito esperado (`reject` ou `pass`).
+73 casos (60 do Sprint 2 e 13 da Duda ácida do Sprint 3, em `07_duda_acida.yaml`): fatos de entrada, uma fala e o veredito esperado (`reject` ou `pass`).
 `make audit` roda o estágio determinístico e o **juiz real** (sem mock) em cada
 caso e imprime a matriz de confusão, o custo e os erros.
 

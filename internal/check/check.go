@@ -40,6 +40,7 @@ type Env struct {
 	ForbiddenPhrases []string
 	Now              time.Time
 	Loc              *time.Location
+	Sensitive        bool // modo sério: segmento com morte, violência, desastre ou doença
 }
 
 // StageResult é uma linha de check_log.
@@ -119,14 +120,15 @@ func Deterministic(l Line, env *Env) StageResult {
 			}
 			refs = append(refs, f)
 			refNames = append(refNames, facts.Names(f.Entities)...)
+			refNames = append(refNames, f.SourceName) // "segundo a Folha de S.Paulo"
 		}
 	case TypeBanter:
 	default:
 		fail("tipo de fala desconhecido: %q", l.Type)
 	}
 
-	// Números.
-	nums := brnum.Extract(text)
+	// Números. Códigos alfanuméricos da allowlist (4G, 5G, B3) não são número.
+	nums := brnum.Extract(lex.MaskCodes(text))
 	if l.Type == TypeBanter {
 		for _, n := range nums {
 			fail("banter com número/data/valor: %q", n.Raw)
@@ -152,9 +154,90 @@ func Deterministic(l Line, env *Env) StageResult {
 		}
 	}
 
+	// Uma fala, um tipo: a primeira frase de uma fala fact tem de ser o fato.
+	if l.Type == TypeFact && len(refs) > 0 {
+		if first, ok := firstContentSentence(text); ok && !sentenceHasFact(first, refs, lex) {
+			fail("fala fact mistura comentário e fato (a primeira frase não traz o fato): separe em uma fala banter e outra fact")
+		}
+	}
+	// Modo sério: segmento com fato sensível não tem piada (o juiz confere o tom).
 	res := StageResult{Stage: StageDeterministic, Passed: len(reasons) == 0, Reasons: reasons}
 	res.Detail = map[string]any{"numbers": rawNumbers(nums), "names": nf.All()}
 	return res
+}
+
+// Aberturas curtas que podem vir antes do fato numa fala fact.
+var openers = []string{"boa noite", "bom dia", "boa tarde", "agora", "outra noticia", "mudando de assunto", "e mais", "seguindo",
+	"vamos a economia", "vamos ao tempo", "traduzindo", "no esporte", "na economia", "na politica", "atencao", "enquanto isso"}
+
+// firstContentSentence: a primeira frase que não é só abertura ("Boa noite.").
+func firstContentSentence(text string) (string, bool) {
+	for _, s := range splitSentences(text) {
+		n := textutil.Normalize(s)
+		if n == "" {
+			continue
+		}
+		short := len(strings.Fields(n)) <= 4
+		isOpener := false
+		for _, o := range openers {
+			if n == o || strings.HasPrefix(n, o+" ") && short {
+				isOpener = true
+				break
+			}
+		}
+		if !isOpener {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+func splitSentences(t string) []string {
+	var out []string
+	start := 0
+	rs := []rune(t)
+	for i, r := range rs {
+		if (r == '.' || r == '!' || r == '?') && (i+1 == len(rs) || rs[i+1] == ' ') {
+			out = append(out, strings.TrimSpace(string(rs[start:i+1])))
+			start = i + 1
+		}
+	}
+	if rest := strings.TrimSpace(string(rs[start:])); rest != "" {
+		out = append(out, rest)
+	}
+	return out
+}
+
+var stop = map[string]bool{"para": true, "pela": true, "pelo": true, "como": true, "mais": true, "isso": true, "esta": true, "este": true,
+	"essa": true, "esse": true, "sobre": true, "entre": true, "segundo": true, "ainda": true, "agora": true, "voce": true, "duda": true, "orlando": true,
+	"gloria": true, "cadeira": true, "quando": true, "onde": true, "porque": true, "muito": true, "pois": true, "tambem": true, "hoje": true}
+
+// sentenceHasFact: a frase traz número, entidade ou ≥ 2 palavras de conteúdo dos fatos citados.
+func sentenceHasFact(sent string, refs []facts.Fact, lex *Lexicon) bool {
+	if len(brnum.Extract(lex.MaskCodes(sent))) > 0 {
+		return true
+	}
+	words := map[string]bool{}
+	for _, f := range refs {
+		for _, e := range f.Entities {
+			if MentionsEntity(sent, e.Name) {
+				return true
+			}
+		}
+		for _, w := range strings.Fields(textutil.Normalize(f.Claim)) {
+			if len(w) >= 4 && !stop[w] {
+				words[w] = true
+			}
+		}
+	}
+	hits := 0
+	for _, w := range strings.Fields(textutil.Normalize(sent)) {
+		if words[w] {
+			hits++
+			delete(words, w)
+		}
+	}
+	return hits >= 2
 }
 
 func rawNumbers(ns []brnum.Number) []string {
@@ -227,6 +310,7 @@ type JudgeResult struct {
 	// Modo banter.
 	NewFactualClaim bool   `json:"new_factual_claim"`
 	Claim           string `json:"claim"`
+	IsJoke          bool   `json:"is_joke"`
 	// Ambos.
 	RealPersonMocked bool `json:"real_person_mocked"`
 }
@@ -247,11 +331,12 @@ var judgeBanterSchema = llm.MustSchema("judge_banter.json", `{
   "properties": {
     "new_factual_claim": {"type": "boolean"},
     "claim": {"type": "string"},
+    "is_joke": {"type": "boolean"},
     "real_person_mocked": {"type": "boolean"}
   }
 }`)
 
-const judgeFactSystem = `Você é o checador de fatos de um telejornal brasileiro apresentado por dois avatares fictícios, Orlando Pimenta e Duda Faísca. Sua função é impedir que qualquer afirmação sem fonte vá ao ar. Seja rigoroso: na dúvida, reprove.
+const judgeFactSystem = `Você é o checador de fatos de um telejornal brasileiro apresentado por avatares fictícios (Orlando Pimenta, Duda Faísca e Glória Garoa, a moça do tempo). Sua função é impedir que qualquer afirmação sem fonte vá ao ar. Seja rigoroso: na dúvida, reprove.
 
 Você recebe UMA fala do tipo "fact" e o texto dos fatos que a sustentam.
 - entailed=true somente se TODA afirmação factual da fala estiver sustentada pelos fatos (paráfrase é permitida; arredondamento correto é permitido; definições de glossário valem como fato).
@@ -261,9 +346,20 @@ Você recebe UMA fala do tipo "fact" e o texto dos fatos que a sustentam.
 - Mas qualquer detalhe que mude ou acrescente fato (quem, quanto, quando, onde, sinal, unidade, período, cargo, causa, "recorde", "primeira vez") reprova.
 - real_person_mocked=true se a fala ridiculariza, zomba ou faz piada com uma pessoa real ou com um grupo real de pessoas.
 
+Exemplos (fatos → fala → veredito):
+1. Fato: "O dólar comercial (venda) ficou em R$ 5,2079 em 02/10/2026, segundo o Banco Central." Fala: "O dólar fechou a R$ 5,21, segundo o Banco Central." → entailed=true (arredondamento correto).
+2. Mesmo fato. Fala: "O dólar caiu para R$ 5,21 por causa da Selic." → entailed=false, unsupported=["caiu", "por causa da Selic"].
+3. Fato: "A meta da taxa Selic está em 13,75% ao ano." Fala: "A Selic segue em 13,75% ao ano." → entailed=true (paráfrase sem fato novo).
+4. Mesmo fato. Fala: "A Selic está em 13,75% ao mês." → entailed=false, unsupported=["ao mês"].
+5. Fato: "O ministro Caio Brandão afirmou que o programa entregou 12 mil moradias." Fala: "O governador Caio Brandão afirmou..." → entailed=false, unsupported=["governador"].
+6. Fato: "Felipe Massa e Pipo Massa venceram juntos." Fala: "Pai e filho, Felipe e Pipo Massa venceram juntos." → entailed=false, unsupported=["Pai e filho"].
+7. Fato: "O festival recebeu 85 mil visitantes." Fala: "O festival bateu recorde com 85 mil visitantes." → entailed=false, unsupported=["bateu recorde"].
+8. Fato de glossário: "A taxa Selic é a taxa básica de juros da economia, que influencia outras taxas." Fala: "Traduzindo: a Selic é a taxa básica de juros e mexe com os outros juros." → entailed=true.
+9. Fato: "A prefeita inaugurou a ponte." Fala: "A prefeita, que nem sabe cortar fita, inaugurou a ponte." → entailed=false, real_person_mocked=true.
+
 Responda apenas com JSON: {"entailed": true|false, "unsupported": ["trecho", ...], "real_person_mocked": true|false}`
 
-const judgeBanterSystem = `Você revisa falas de "banter" (comentário, reação, transição, piada) de um telejornal apresentado por dois avatares fictícios, Orlando Pimenta e Duda Faísca.
+const judgeBanterSystem = `Você revisa falas de "banter" (comentário, reação, transição, piada) de um telejornal apresentado por avatares fictícios (Orlando Pimenta, Duda Faísca e Glória Garoa, a moça do tempo).
 
 PERMITIDO: opinião, piada, exagero óbvio, reação emocional, comentário sobre os próprios avatares e sobre o estúdio (a rixa pela cadeira, "a máquina", a idade do Orlando, as gírias da Duda), memórias e bordões dos avatares, chamadas para a próxima notícia, e repetir em outras palavras o que os fatos do segmento já dizem.
 
@@ -271,7 +367,9 @@ PROIBIDO:
 1. Afirmação factual NOVA sobre o mundo real: algo verificável que não está nos fatos do segmento (quem, o quê, quando, onde, quanto, causa, consequência, parentesco, recorde...).
 2. Zombar de pessoa real ou de grupo real de pessoas.
 
-Responda apenas com JSON: {"new_factual_claim": true|false, "claim": "o trecho da afirmação nova, ou vazio", "real_person_mocked": true|false}`
+is_joke=true se a fala tem tom de piada, ironia, deboche ou brincadeira (mesmo leve); false se é neutra ou séria.
+
+Responda apenas com JSON: {"new_factual_claim": true|false, "claim": "o trecho da afirmação nova, ou vazio", "is_joke": true|false, "real_person_mocked": true|false}`
 
 type Judge struct {
 	LLM         llm.Client
@@ -302,7 +400,7 @@ func (j *Judge) Evaluate(ctx context.Context, l Line, refs []facts.Fact) (JudgeR
 	}
 	resp, err := j.LLM.Complete(ctx, llm.Request{
 		Purpose: "judge", Model: model, System: system, Prompt: b.String(),
-		MaxTokens: 4000, Temperature: llm.Float(0), Effort: "low",
+		MaxTokens: 4000, Temperature: llm.Float(0), Effort: "low", CacheSystem: l.Type != TypeBanter,
 	})
 	if err != nil {
 		return JudgeResult{}, err
@@ -370,9 +468,12 @@ func (f *Flow) judge(ctx context.Context, l Line) (StageResult, error) {
 	var reasons []string
 	detail := map[string]any{"real_person_mocked": jr.RealPersonMocked}
 	if l.Type == TypeBanter {
-		detail["new_factual_claim"], detail["claim"] = jr.NewFactualClaim, jr.Claim
+		detail["new_factual_claim"], detail["claim"], detail["is_joke"] = jr.NewFactualClaim, jr.Claim, jr.IsJoke
 		if jr.NewFactualClaim {
 			reasons = append(reasons, "juiz: afirmação factual nova no banter: "+jr.Claim)
+		}
+		if f.Env.Sensitive && jr.IsJoke {
+			reasons = append(reasons, "modo sério: piada em segmento com notícia sensível (morte, violência, desastre ou doença)")
 		}
 	} else {
 		detail["entailed"], detail["unsupported"] = jr.Entailed, jr.Unsupported

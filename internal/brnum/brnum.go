@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gloffreda/tv-ta-ligado/internal/textutil"
 )
@@ -175,6 +177,11 @@ func Extract(text string) []Number {
 		if overlaps(used, numA, numB) {
 			continue
 		}
+		// Dígitos colados depois de letra fazem parte de um nome (g1, B3,
+		// G20, COP30, IPCA15), não são número.
+		if m[2] < 0 && m[4] < 0 && letterBefore(text, numA) {
+			continue
+		}
 		start := m[0]
 		// O espaço opcional do início pode ter sido capturado sem moeda.
 		for start < numA && text[start] == ' ' {
@@ -251,6 +258,14 @@ func Extract(text string) []Number {
 		res[i] = f.n
 	}
 	return res
+}
+
+func letterBefore(s string, i int) bool {
+	if i == 0 {
+		return false
+	}
+	r, _ := utf8.DecodeLastRuneInString(s[:i])
+	return unicode.IsLetter(r) && r != 'º' && r != 'ª'
 }
 
 func isAlnumBefore(s string, i int) bool {

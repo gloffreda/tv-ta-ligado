@@ -24,6 +24,12 @@ type GlossaryReport struct {
 // existia, deixa de valer).
 func (in *Ingester) LoadGlossary(ctx context.Context, terms []config.GlossaryTerm, series func(string) string) GlossaryReport {
 	r := GlossaryReport{Rejected: map[string]string{}}
+	if in.Gate != nil {
+		if err := in.Gate.Allow(ctx, "glossary"); err != nil {
+			r.Rejected["*"] = err.Error()
+			return r
+		}
+	}
 	cache := map[string]string{}
 	fetchErr := map[string]error{}
 	for _, t := range terms {

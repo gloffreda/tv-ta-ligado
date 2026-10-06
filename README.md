@@ -116,7 +116,7 @@ aplicados estão em [DECISIONS.md](DECISIONS.md).
 | `JUDGE_BANTER_MODEL` | `MODEL_FAST` | juiz de banter (validado na auditoria) |
 | `PRICE_FAST_INPUT_PER_MTOK` / `PRICE_FAST_OUTPUT_PER_MTOK` | `1.00` / `5.00` | US$ por milhão de tokens |
 | `PRICE_SMART_INPUT_PER_MTOK` / `PRICE_SMART_OUTPUT_PER_MTOK` | `2.00` / `10.00` | US$ por milhão de tokens |
-| `MAX_DAILY_USD` | `5.00` | teto diário (fuso de Brasília) |
+| `MAX_DAILY_USD` | `8.00` | teto diário (fuso de Brasília) |
 | `GENERATE` | `on` | chave geral (`on`/`off`) |
 | `REPLAY_WHEN_IDLE` | `off` | `on`: com `VIEWERS=0`, reprisa em vez de gerar |
 | `VIEWERS` | `1` | audiência (variável por ora; Sprint 3: contagem real) |

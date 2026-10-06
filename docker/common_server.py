@@ -39,7 +39,9 @@ def chunks(text):
     return out
 
 
-def serve(engine_voices, engine_info, engine_synth, port=8080):
+def serve(engine_voices, engine_info, engine_synth, port=8080, validate=None):
+    valid = validate or (lambda v: v in engine_voices())
+
     class Handler(BaseHTTPRequestHandler):
         def _json(self, code, obj):
             body = json.dumps(obj).encode()
@@ -62,7 +64,7 @@ def serve(engine_voices, engine_info, engine_synth, port=8080):
             try:
                 req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))))
                 text, voice = req["text"], req.get("voice", "")
-                if voice not in engine_voices():
+                if not valid(voice):
                     return self._json(400, {"error": f"voz {voice!r} indisponível"})
                 pieces, sr = [], None
                 with LOCK:
