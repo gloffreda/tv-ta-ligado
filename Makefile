@@ -38,9 +38,9 @@ run: up
 	@mkdir -p .make
 	@if [ ! -f .make/env.stamp ] || [ .env -nt .make/env.stamp ]; then \
 	  echo ".env novo ou alterado: recriando o container tvtl"; \
-	  $(COMPOSE) up -d --force-recreate tvtl api && touch .make/env.stamp; \
+	  $(COMPOSE) up -d lipsync tts-kokoro && $(COMPOSE) up -d --force-recreate tvtl api && touch .make/env.stamp; \
 	else \
-	  $(COMPOSE) up -d tvtl api; \
+	  $(COMPOSE) up -d lipsync tts-kokoro tvtl api; \
 	fi
 
 logs:
