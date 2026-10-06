@@ -44,6 +44,14 @@ test("portão: sem login vai para /entrar; API e mídia 401; login, painel sem t
   await expect(page.locator("[data-ai-notice]")).toHaveText("Conteúdo gerado por IA · vozes e apresentadores sintéticos");
   const tv = await page.locator("#tv").boundingBox();
   expect(tv && Math.abs(tv.width / tv.height - 16 / 9)).toBeLessThan(0.02);
+  // a TV e os controles cabem na altura da janela, sem rolar (desktop e celular)
+  for (const [w, h] of [[1440, 900], [1280, 720], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.waitForTimeout(300);
+    const ctl = await page.locator(".controls").boundingBox();
+    expect(ctl!.y + ctl!.height, `controles visíveis em ${w}x${h}`).toBeLessThanOrEqual(h);
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
 
   // em repouso: Ligar a TV abre o painel com limites e só "Confirmar" (não clicamos)
   await expect(page.locator("[data-offair] h2")).toHaveText("FORA DO AR", { timeout: 20000 });
