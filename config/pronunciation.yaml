@@ -1,0 +1,56 @@
+# Como falar siglas, abreviações e símbolos. Troca exata (caixa e acento),
+# termo inteiro. Só afeta o spoken_text: o texto checado nunca muda.
+terms:
+  # Siglas soletradas
+  IPCA: í-pê-cê-á
+  IPCA-15: í-pê-cê-á quinze
+  INPC: í-ene-pê-cê
+  IGP-M: í-gê-pê-ême
+  STF: esse-tê-efe
+  STJ: esse-tê-jota
+  TSE: tê-esse-é
+  TCU: tê-cê-u
+  IBGE: í-bê-gê-é
+  INSS: í-ene-esse-esse
+  FGTS: efe-gê-tê-esse
+  BNDES: bê-ene-dê-é-esse
+  FGV: efe-gê-vê
+  CMN: cê-ême-ene
+  BC: bê-cê
+  BCB: bê-cê-bê
+  PIB: pib
+  PF: pê-efe
+  PM: pê-ême
+  PRF: pê-erre-efe
+  MEI: mei
+  CLT: cê-éle-tê
+  EUA: é-u-á
+  ONU: ônu
+  OMS: ó-ême-esse
+  OMM: ó-ême-ême
+  FMI: efe-ême-í
+  B3: bê três
+  DF: dê-efe
+  SP: esse-pê
+  RJ: érre-jota
+  MG: ême-gê
+  TV: tê-vê
+  # Palavras com pronúncia própria
+  Selic: sélic
+  Copom: cópom
+  Ibovespa: ibovéspa
+  Pix: pics
+  Inmet: inméti
+  INMET: inméti
+  Anvisa: anvísa
+  Aneel: anéel
+  Open-Meteo: ópen meteo
+  PTAX: pê-táx
+  # Abreviações e símbolos
+  km: quilômetros
+  km/h: quilômetros por hora
+  "nº": número
+  "°C": graus
+  "&": e
+  p.p.: pontos percentuais
+  a.a.: ao ano
