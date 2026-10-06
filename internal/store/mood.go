@@ -201,8 +201,8 @@ func (s *Store) LogCapped(ctx context.Context, maxUses int, now time.Time) (int,
 	week := weekStart(now)
 	tag, err := s.DB.Exec(ctx, `
 		INSERT INTO persona_memory_log(action, memory_ids, detail, created_at)
-		SELECT 'capped', array_agg(id), jsonb_build_object('week', $1::date, 'max_uses', $2), $3
-		FROM persona_memory WHERE retired_at IS NULL AND week_start = $1::date AND uses_week >= $2
+		SELECT 'capped', array_agg(id), jsonb_build_object('week', $1::date, 'max_uses', $2::int), $3
+		FROM persona_memory WHERE retired_at IS NULL AND week_start = $1::date AND uses_week >= $2::int
 		HAVING count(*) > 0`, week, maxUses, now)
 	if err != nil {
 		return 0, err

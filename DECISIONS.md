@@ -669,3 +669,76 @@ caracteres, 4 por dia) caberiam com folga.
   segmento pronto entre logo, em vez de ficar atrás de 10 min de vinhetas.
 - Tarefas periódicas só dentro de sessão: glossário (a cada 24 h) e consolidação
   da memória (no máximo a cada 7 dias), pela tabela `jobs`.
+- Segmentos de dados numa rotina própria (a cada 10 s), separada da geração com
+  LLM (que prende o ciclo por minutos). Manchetes com estoque de 2.
+- Manchetes também pelo **título** das matérias ingeridas, lido literalmente e
+  creditado ao veículo: é o insumo mais farto e não custa LLM. Fica de fora o
+  título com nome fora da allowlist (sem entidade checada, o título não serve de
+  fonte para um nome), o tema fora do brief e títulos com pergunta ou aspas.
+  No máximo 2 por veículo por segmento. Palavras de morte, violência, desastre e
+  doença marcam o segmento como sensível.
+- As páginas automáticas de resultado eleitoral do g1 (uma por município e
+  seção: milhares por turno) ficaram fora da pauta e das manchetes
+  (`resultado-das-eleicoes` em `exclude.url_parts`). São literais e têm fonte,
+  mas inundavam o ar com resultados hiperlocais repetidos.
+
+## Composição do ar e custo (homologação, 06/10/2026, madrugada)
+Quatro rodadas de 30 min com 2 navegadores (mais a página /humano), sessão
+ligada pelo botão. As duas primeiras mostraram o problema (vinheta de 56% e
+62% depois de 15 min); as correções acima levaram a 0%.
+
+| rodada | estreia | dados | reprise | vinheta | vinheta após 15 min | buracos |
+|---|---|---|---|---|---|---|
+| 1 (antes das correções) | 20,7% | 23,2% | 0% | 56,1% | 61,8% | 0 |
+| 2 | 14,8% | 28,7% | 41,1% | 15,4% | **0%** | 0 |
+| 3 (manchetes secaram) | 13,4% | 29,7% | 44,9% | 12,0% | 23,5% | 0 |
+| 4 (código final) | 4,4% | 16,8% | 78,8% | **0%** | **0%** | 0 |
+
+A rodada 3 falhou porque, às 2h da manhã, chegavam poucas matérias e a janela
+das manchetes era de 6 h (4 h reais, com o relógio da homologação 2 h à frente).
+Na rodada 4 a estreia caiu (4,4%) porque, depois de 9 sessões seguidas na mesma
+madrugada, as matérias candidatas já tinham sido usadas em pautas nas últimas
+6 h ("pauta sem fatos válidos"): a reprise cobriu. Com o noticiário do dia e
+sessões espaçadas, a proporção de estreias sobe.
+
+- **Custo por hora no ar** (sessões com geração ativa): US$ 0,38 a 0,41/h
+  (sessão 6: US$ 0,212 em 30,7 min; sessão 7: US$ 0,195 em 30,7 min). Sessão
+  típica de 30 min: ~US$ 0,20. Voz: US$ 0 (Kokoro local).
+- **Cache de prompt**, medido nas sessões 6–9: US$ 0,513 gastos contra
+  US$ 0,698 sem cache: **26,5% a menos** no total de LLM (juiz de fatos e
+  reescrita são os que mais leem do cache).
+- **Do clique à primeira fala**: na 1ª sessão, antes das correções, 11 min 51 s
+  (148 vinhetas agendadas na frente de tudo). Depois: 5,3 s com a abertura
+  sintetizada na hora e **0,97 a 1,75 s** com o áudio da abertura em cache. A
+  página vê o balão 2 a 12 s depois do clique (ela relê a sessão a cada 5 s pelo
+  túnel rápido).
+- **Custo diário**: em repouso, US$ 0. Ligado, ~US$ 0,40 por hora de sessão;
+  cada sessão tem teto de US$ 2 e 60 min, e o dia continua com teto de US$ 8.
+
+## Sincronia (rodadas 2 a 4, 30 min cada)
+- Dois navegadores: 99,6% das falas com diferença < 250 ms (p95 17–18 ms).
+- `/` x `/humano`: 99,6–100% < 250 ms (p95 17–33 ms); mesmo visema na boca de
+  quem fala em 92,8–98,2% das amostras do mesmo instante (o resto é borda entre
+  dois visemas).
+- Balão x início da fala: 99,6% < 250 ms (p95 16 ms). FONTE em 100% das falas
+  `fact`. Áudio x relógio: p95 de 82–100 ms (latência de saída constante).
+
+## Bug achado nos testes: consolidação da memória toda sessão
+A consolidação semanal rodava em toda sessão: `LogCapped` passava o mesmo
+parâmetro como inteiro e dentro de `jsonb_build_object`, o Postgres não
+inferia o tipo, o job terminava com erro e `jobs` nunca era gravado. As fusões
+em si estavam certas (8 registros em `persona_memory_log`). Corrigido com
+`$2::int` e um teste de integração (memória do par, limite de 3 usos por
+semana, `LogCapped`, `JobDue`, humor com meia-vida).
+
+## Isolamento no host
+- Proxies e túneis encontrados antes de subir: `traefik-traefik-1` (0.0.0.0:80
+  e 443), `novatrak-staging-caddy` (8087), o processo `caddy` do host (do
+  novatrak) e o `tailscaled`. Nenhum `cloudflared` de outro projeto. Nada disso
+  foi tocado.
+- Os containers `tvtl-site-web` e `tvtl-site-tunnel` não existiam.
+- Durante o sprint, 8 containers do `novatrak-staging` foram recriados (IDs
+  novos entre 04:10 e 04:36 UTC) pelo próprio projeto deles (Compose em
+  `/home/mini/projects/novatrak/infra`). Nenhum comando deste sprint mexeu
+  neles; `traefik`, `caddy`, `postgres`, `redis` e os demais seguem com o mesmo
+  ID e `StartedAt`.

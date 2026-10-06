@@ -14,7 +14,9 @@ before_last=$(psql "select id||' | '||created_at||' | '||purpose||' | '||model f
 before_sessions=$(psql "select count(*) from sessions")
 
 make -s up >/dev/null
-names=$(docker ps --filter label=com.docker.compose.project=tvtl --format '{{.Names}}' | sort)
+# só os serviços permanentes (fora os temporários de teste: gotool, postgres-test)
+names=$(docker ps --filter label=com.docker.compose.project=tvtl --format '{{.Names}} {{.Label "com.docker.compose.service"}}' \
+  | awk '$2 ~ /^(postgres|tvtl|api|web|tunnel|lipsync|tts-kokoro)$/ {print $1}' | sort)
 docker restart $names >/dev/null
 start=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 sleep 20 # partida
