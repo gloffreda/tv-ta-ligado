@@ -42,11 +42,17 @@ func spokenAtoms(spoken string) []atom {
 	isNum := func(t string) bool { _, ok := wordVal[t]; _, s := scaleVal[t]; return ok || s }
 	for i < len(toks) {
 		t := toks[i]
-		// Mês só vale como número quando vem em data ("dois de outubro").
-		if m, ok := monthVal[t]; ok && i >= 2 && toks[i-1] == "de" {
-			out = append(out, atom{v: float64(m)})
-			i++
-			continue
+		// Mês só vale como número dentro de data: com dia antes ("dois de
+		// outubro", "primeiro de março") ou ano depois ("agosto de dois mil...").
+		// "Rio de Janeiro" não é janeiro.
+		if m, ok := monthVal[t]; ok {
+			dayBefore := i >= 2 && toks[i-1] == "de" && (isNum(toks[i-2]) || toks[i-2] == "primeiro")
+			yearAfter := i+2 < len(toks) && toks[i+1] == "de" && isNum(toks[i+2])
+			if dayBefore || yearAfter {
+				out = append(out, atom{v: float64(m)})
+				i++
+				continue
+			}
 		}
 		if o, ok := ordVal[t]; ok {
 			// Ordinal composto: "vigesima quarta".

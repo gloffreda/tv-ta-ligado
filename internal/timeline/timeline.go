@@ -16,6 +16,7 @@ import (
 
 type Config struct {
 	BufferMin     time.Duration // BUFFER_MIN (padrão 10 min)
+	FillMargin    time.Duration // folga acima do mínimo, para o buffer não cair entre dois Fill (30 s)
 	PauseLines    time.Duration // pause_between_lines_ms (350)
 	PauseSpeakers time.Duration // pause_between_speakers_ms (500)
 	PauseItems    time.Duration // pause_between_items_ms (800): respiro no fim de cada item
@@ -81,7 +82,7 @@ func (c Config) Lines(ls []store.TimelineLine) ([]store.TimelineLine, time.Durat
 func (s *Scheduler) Fill(ctx context.Context, until time.Time) ([]store.TimelineItem, error) {
 	now := s.now()
 	if until.IsZero() {
-		until = now.Add(s.Cfg.BufferMin)
+		until = now.Add(s.Cfg.BufferMin + s.Cfg.FillMargin)
 	}
 	if err := s.Store.MarkAired(ctx, now); err != nil {
 		return nil, err

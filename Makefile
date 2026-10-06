@@ -17,6 +17,8 @@ build:
 up: build
 	$(COMPOSE) up -d --wait postgres
 	$(COMPOSE) run --rm tvtl migrate
+	@# volume de mídia gravável pelo usuário do container (volumes antigos nascem do root)
+	$(COMPOSE) run --rm --no-deps -T --user 0 --entrypoint chown tvtl -R $${TVTL_UID:-1000}:$${TVTL_GID:-1000} /media
 
 ## down: derruba só o projeto tvtl (volumes preservados)
 down:

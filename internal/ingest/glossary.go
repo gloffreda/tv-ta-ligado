@@ -25,19 +25,31 @@ type GlossaryReport struct {
 func (in *Ingester) LoadGlossary(ctx context.Context, terms []config.GlossaryTerm, series func(string) string) GlossaryReport {
 	r := GlossaryReport{Rejected: map[string]string{}}
 	cache := map[string]string{}
+	fetchErr := map[string]error{}
 	for _, t := range terms {
 		text, ok := cache[t.CheckURL]
 		var err error
 		if !ok {
-			text, err = in.sourceText(ctx, t.CheckURL)
-			if err == nil {
-				cache[t.CheckURL] = text
+			if err = fetchErr[t.CheckURL]; err == nil {
+				text, err = in.sourceTextRetry(ctx, t.CheckURL)
+				if err == nil {
+					cache[t.CheckURL] = text
+				} else {
+					fetchErr[t.CheckURL] = err
+				}
 			}
 		}
-		if err == nil && !strings.Contains(squash(text), squash(t.Check)) {
-			err = fmt.Errorf("a fonte não contém a frase de verificação")
+		// Falha de rede é transitória: o termo já validado continua valendo.
+		if err != nil {
+			r.Rejected[t.Term] = "fonte indisponível agora (mantida a validação anterior): " + err.Error()
+			_ = in.Store.Event(ctx, "glossary_source_unreachable", map[string]string{"term": t.Term, "url": t.CheckURL, "error": err.Error()})
+			slog.Warn("glossário: fonte fora do ar; termo mantido se já validado", "termo", t.Term, "erro", err)
+			continue
 		}
-		if err == nil && !textutil.ContainsPhrase(t.Definition, t.Term) && !containsAny(t.Definition, t.Aliases) {
+		// Conteúdo que não bate é motivo real: o termo sai do ar.
+		if !strings.Contains(squash(text), squash(t.Check)) {
+			err = fmt.Errorf("a fonte não contém a frase de verificação")
+		} else if !textutil.ContainsPhrase(t.Definition, t.Term) && !containsAny(t.Definition, t.Aliases) {
 			err = fmt.Errorf("a definição não cita o termo")
 		}
 		if err != nil {
@@ -62,6 +74,25 @@ func (in *Ingester) LoadGlossary(ctx context.Context, terms []config.GlossaryTer
 		r.Loaded = append(r.Loaded, t.Term)
 	}
 	return r
+}
+
+// sourceTextRetry: 3 tentativas com espera crescente (sites oficiais oscilam).
+func (in *Ingester) sourceTextRetry(ctx context.Context, url string) (string, error) {
+	var err error
+	for i, wait := range []time.Duration{0, 3 * time.Second, 8 * time.Second} {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		var text string
+		if text, err = in.sourceText(ctx, url); err == nil {
+			return text, nil
+		}
+	}
+	return "", err
 }
 
 // sourceText baixa a fonte e devolve o texto. A API de páginas do BCB devolve

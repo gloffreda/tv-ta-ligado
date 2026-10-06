@@ -63,6 +63,9 @@ func TestNormalize(t *testing.T) {
 		{"segundo o IBGE", "segundo o í-bê-gê-é"},
 		{"a covid-19 voltou", "a covid dezenove voltou"},
 		{"Isso está checado? Então eu leio.", "Isso está checado? Então eu leio."},
+		{"No Rio de Janeiro, máxima de 25,3 °C e 47% de chance de chuva.", "No Rio de Janeiro, máxima de vinte e cinco vírgula três graus e quarenta e sete por cento de chance de chuva."},
+		{"O IPCA variou -0,32% em agosto de 2026.", "O í-pê-cê-á variou menos zero vírgula trinta e dois por cento em agosto de dois mil e vinte e seis."},
+		{"Em Janeiro, perto de Março, nada de números.", "Em Janeiro, perto de Março, nada de números."},
 	}
 	for _, c := range cases {
 		got := Normalize(c.in, d)

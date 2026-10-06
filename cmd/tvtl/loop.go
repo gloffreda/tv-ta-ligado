@@ -31,7 +31,7 @@ func (a *app) scheduler(v *voice.Voicer) (*timeline.Scheduler, error) {
 	var bumper *timeline.BumperAudio
 	return &timeline.Scheduler{
 		Store: a.store, Now: a.now,
-		Cfg: timeline.Config{BufferMin: a.env.BufferMin, PauseLines: ms(tc.PauseLinesMS), PauseSpeakers: ms(tc.PauseSpeakersMS),
+		Cfg: timeline.Config{BufferMin: a.env.BufferMin, FillMargin: 30 * time.Second, PauseLines: ms(tc.PauseLinesMS), PauseSpeakers: ms(tc.PauseSpeakersMS),
 			PauseItems: ms(tc.PauseItemsMS), ReplayWindow: a.env.ReplayWindow, ReplayGap: tc.ReplayMinGap.Duration},
 		Blocks: func() []config.Block {
 			if s, err := config.LoadSchedule(a.env.ConfigDir); err == nil {
@@ -91,6 +91,12 @@ func (a *app) run(ctx context.Context) error {
 	slog.Info("tvtl run", "ingestao_a_cada", a.env.IngestInterval, "generate", a.env.Generate, "teto_usd_dia", a.env.MaxDailyUSD,
 		"replay_when_idle", a.env.ReplayWhenIdle, "viewers", a.env.Viewers, "buffer_min", a.env.BufferMin,
 		"clock_offset", a.env.ClockOffset, "model_fast", a.env.ModelFast, "model_smart", a.env.ModelSmart)
+
+	// Antes de ligar a linha do tempo, dá voz ao que já está aprovado na janela
+	// de reprise: assim a partida a frio não começa com 10 min de vinheta.
+	t0 := time.Now()
+	a.voiceBacklog(ctx, v, 1000)
+	slog.Info("voz pendente concluída antes da linha do tempo", "duracao", time.Since(t0).Round(time.Second))
 
 	// Linha do tempo numa rotina própria: a geração pode levar minutos.
 	tlCtx, stopTL := context.WithCancel(ctx)

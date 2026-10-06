@@ -52,3 +52,19 @@ func TestGetRetryBackoff(t *testing.T) {
 		t.Fatalf("3 tentativas e falha: err=%v hits=%d", err, hits)
 	}
 }
+
+// A fonte fora do ar é tentada 3 vezes (e o termo validado antes não é derrubado).
+func TestSourceTextRetry(t *testing.T) {
+	var hits int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer srv.Close()
+	in := &Ingester{HTTP: srv.Client(), UA: "test"}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if _, err := in.sourceTextRetry(ctx, srv.URL); err == nil || hits != 3 {
+		t.Fatalf("err=%v hits=%d", err, hits)
+	}
+}
