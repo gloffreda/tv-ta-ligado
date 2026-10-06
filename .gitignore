@@ -6,3 +6,6 @@ coverage.*
 /output/
 /.make/
 /out/
+web/node_modules/
+web/dist/
+out/
