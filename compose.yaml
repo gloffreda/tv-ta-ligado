@@ -59,6 +59,7 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-tvtl}:${POSTGRES_PASSWORD:-tvtl}@postgres:5432/${POSTGRES_DB:-tvtl}?sslmode=disable
       TVTL_CONFIG_DIR: /app/config
       TVTL_OUTPUT_DIR: /app/output
+      TVTL_MEDIA_DIR: /media
     # Mesmo uid/gid do dono do projeto, para gravar relatórios em ./output.
     user: "${TVTL_UID:-1000}:${TVTL_GID:-1000}"
     volumes:
@@ -75,6 +76,43 @@ services:
     restart: unless-stopped
     mem_limit: ${TVTL_MEM:-256m}
     cpus: ${TVTL_CPUS:-1}
+    logging: *logging
+
+  # API da linha do tempo. Sem porta no host; `make debug-up` publica em 127.0.0.1.
+  api:
+    image: tvtl:local
+    command: ["serve", "--listen", ":8080"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-tvtl}:${POSTGRES_PASSWORD:-tvtl}@postgres:5432/${POSTGRES_DB:-tvtl}?sslmode=disable
+      TVTL_CONFIG_DIR: /app/config
+      TVTL_MEDIA_DIR: /media
+    user: "${TVTL_UID:-1000}:${TVTL_GID:-1000}"
+    volumes:
+      - ./config:/app/config:ro
+      - tvtl_media:/media:ro
+    networks: [tvtl_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: ${TVTL_API_MEM:-256m}
+    cpus: ${TVTL_API_CPUS:-1}
+    logging: *logging
+
+  api-debug:
+    profiles: [debug]
+    image: tvtl:local
+    command: ["debug-proxy", "--listen", ":8080", "--target", "api:8080"]
+    ports:
+      - "127.0.0.1:${TVTL_API_PORT:-58080}:8080"
+    networks: [tvtl_net]
+    depends_on: [api]
+    restart: "no"
+    mem_limit: 64m
+    cpus: 0.25
     logging: *logging
 
   # Visemas: Rhubarb Lip Sync (modo fonético) sobre o áudio final.
