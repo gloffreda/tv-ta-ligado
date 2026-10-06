@@ -3,7 +3,7 @@ COMPOSE := docker compose -p tvtl
 GO      := $(COMPOSE) --profile tools run --rm --no-deps gotool
 N       ?= 5
 
-.PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build audit audition bench
+.PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build audit audition bench render staging-up staging-down staging-logs
 
 # Vozes locais que sobem com o canal (perfis do compose). Só o aprovado no benchmark.
 TTS_PROFILES ?= kokoro
@@ -11,7 +11,7 @@ export COMPOSE_PROFILES := $(TTS_PROFILES)
 
 build:
 	@mkdir -p output
-	$(COMPOSE) build tvtl lipsync
+	$(COMPOSE) build tvtl lipsync tts-kokoro
 
 ## up: sobe o Postgres, constrói a imagem e aplica as migrações (não inicia a geração)
 up: build
@@ -38,9 +38,9 @@ run: up
 	@mkdir -p .make
 	@if [ ! -f .make/env.stamp ] || [ .env -nt .make/env.stamp ]; then \
 	  echo ".env novo ou alterado: recriando o container tvtl"; \
-	  $(COMPOSE) up -d --force-recreate tvtl && touch .make/env.stamp; \
+	  $(COMPOSE) up -d --force-recreate tvtl api && touch .make/env.stamp; \
 	else \
-	  $(COMPOSE) up -d tvtl; \
+	  $(COMPOSE) up -d tvtl api; \
 	fi
 
 logs:
@@ -81,7 +81,25 @@ vet:
 
 debug-up:
 	@ss -ltn | grep -q ":$${TVTL_PG_PORT:-55432} " && { echo "porta $${TVTL_PG_PORT:-55432} ocupada"; exit 1; } || true
-	$(COMPOSE) --profile debug up -d pg-debug
+	@ss -ltn | grep -q ":$${TVTL_API_PORT:-58080} " && { echo "porta $${TVTL_API_PORT:-58080} ocupada"; exit 1; } || true
+	$(COMPOSE) --profile debug up -d pg-debug api-debug
 
 debug-down:
-	$(COMPOSE) --profile debug rm -sf pg-debug
+	$(COMPOSE) --profile debug rm -sf pg-debug api-debug
+
+## render: MP3 + legendas.srt da linha do tempo em out/ (FROM=now|-15m|RFC3339, MIN=15)
+FROM ?= now
+MIN  ?= 15
+render:
+	@mkdir -p out
+	$(COMPOSE) run --rm -T -v $(CURDIR)/out:/app/out tvtl render --from $(FROM) --minutes $(MIN) --out out
+
+## staging: instância inteira no futuro (CLOCK_OFFSET), projeto tvtl-staging, banco e mídia próprios
+STAGING := docker compose -p tvtl-staging -f compose.staging.yaml
+staging-up: build
+	$(STAGING) up -d --wait postgres
+	$(STAGING) up -d
+staging-down:
+	$(STAGING) down --remove-orphans
+staging-logs:
+	$(STAGING) logs -f --tail=200 tvtl
