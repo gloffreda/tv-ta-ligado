@@ -1,0 +1,107 @@
+# Homologação com o tempo deslocado: uma instância inteira rodando no futuro
+# (CLOCK_OFFSET), com projeto, rede, banco e mídia PRÓPRIOS. Não há nenhuma
+# referência ao volume do banco principal nem à rede do projeto principal.
+#   make staging-up     make staging-logs     make staging-down
+name: tvtl-staging
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-env: &env
+  DATABASE_URL: postgres://tvtl:tvtl@postgres:5432/tvtl_staging?sslmode=disable
+  TVTL_CONFIG_DIR: /app/config
+  TVTL_OUTPUT_DIR: /app/output
+  TVTL_MEDIA_DIR: /media
+  CLOCK_OFFSET: ${STAGING_CLOCK_OFFSET:-+2h}
+  TTS_KOKORO_URL: http://tts-kokoro:8080
+  LIPSYNC_URL: http://lipsync:8080
+
+networks:
+  tvtl_staging_net:
+    name: tvtl_staging_net
+    driver: bridge
+
+volumes:
+  tvtl_staging_pgdata:
+    name: tvtl_staging_pgdata
+  tvtl_staging_media:
+    name: tvtl_staging_media
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tvtl
+      POSTGRES_PASSWORD: tvtl
+      POSTGRES_DB: tvtl_staging
+    volumes:
+      - tvtl_staging_pgdata:/var/lib/postgresql/data
+    networks: [tvtl_staging_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tvtl -d tvtl_staging"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    mem_limit: ${TVTL_STAGING_PG_MEM:-384m}
+    cpus: ${TVTL_STAGING_PG_CPUS:-0.5}
+    logging: *logging
+
+  tvtl:
+    image: tvtl:local
+    command: ["run"]
+    env_file:
+      - path: .env
+        required: false
+    environment: *env
+    user: "${TVTL_UID:-1000}:${TVTL_GID:-1000}"
+    volumes:
+      - ./config:/app/config:ro
+      - ./output/staging:/app/output
+      - tvtl_staging_media:/media
+    networks: [tvtl_staging_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: ${TVTL_STAGING_MEM:-256m}
+    cpus: ${TVTL_STAGING_CPUS:-1}
+    logging: *logging
+
+  api:
+    image: tvtl:local
+    command: ["serve", "--listen", ":8080"]
+    environment: *env
+    user: "${TVTL_UID:-1000}:${TVTL_GID:-1000}"
+    volumes:
+      - ./config:/app/config:ro
+      - tvtl_staging_media:/media:ro
+    networks: [tvtl_staging_net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *logging
+
+  lipsync:
+    image: tvtl-lipsync:local
+    networks: [tvtl_staging_net]
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 1
+    logging: *logging
+
+  tts-kokoro:
+    image: tvtl-tts-kokoro:local
+    environment:
+      TTS_THREADS: ${TVTL_STAGING_KOKORO_CPUS:-1}
+    networks: [tvtl_staging_net]
+    restart: unless-stopped
+    mem_limit: 1536m
+    cpus: ${TVTL_STAGING_KOKORO_CPUS:-1}
+    logging: *logging
