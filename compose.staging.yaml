@@ -18,6 +18,9 @@ x-env: &env
   CLOCK_OFFSET: ${STAGING_CLOCK_OFFSET:-+2h}
   TTS_KOKORO_URL: http://tts-kokoro:8080
   LIPSYNC_URL: http://lipsync:8080
+  # Token próprio da homologação (nunca o de produção).
+  TVTL_ADMIN_TOKEN: ${TVTL_STAGING_ADMIN_TOKEN:-}
+  PUBLIC_MODE: preview
 
 networks:
   tvtl_staging_net:
@@ -86,6 +89,29 @@ services:
     restart: unless-stopped
     mem_limit: 256m
     cpus: 0.5
+    logging: *logging
+
+  web:
+    image: tvtl-web:local
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+      - /var/cache/nginx:size=8m
+    networks: [tvtl_staging_net]
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.25
+    logging: *logging
+
+  # Homologação: sempre túnel rápido (endereço próprio, `make staging-url`).
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.0
+    command: tunnel --no-autoupdate --metrics 0.0.0.0:2000 --url http://web:80
+    networks: [tvtl_staging_net]
+    depends_on: [web]
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
     logging: *logging
 
   lipsync:
