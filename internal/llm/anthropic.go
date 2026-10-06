@@ -39,6 +39,9 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 		block := anthropic.TextBlockParam{Text: req.System}
 		if req.CacheSystem {
 			block.CacheControl = anthropic.NewCacheControlEphemeralParam()
+			if req.CacheTTL == "1h" {
+				block.CacheControl.TTL = anthropic.CacheControlEphemeralTTLTTL1h
+			}
 		}
 		params.System = []anthropic.TextBlockParam{block}
 	}
@@ -58,6 +61,7 @@ func (a *Anthropic) Complete(ctx context.Context, req Request) (Response, error)
 		OutputTokens:     int(msg.Usage.OutputTokens),
 		CacheReadTokens:  int(msg.Usage.CacheReadInputTokens),
 		CacheWriteTokens: int(msg.Usage.CacheCreationInputTokens),
+		CacheWrite1h:     int(msg.Usage.CacheCreation.Ephemeral1hInputTokens),
 	}
 	if msg.StopReason == anthropic.StopReasonRefusal {
 		return r, ErrRefused

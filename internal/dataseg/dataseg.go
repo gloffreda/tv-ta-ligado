@@ -15,8 +15,11 @@ import (
 	"time"
 
 	"github.com/gloffreda/tv-ta-ligado/internal/check"
+	"github.com/gloffreda/tv-ta-ligado/internal/config"
 	"github.com/gloffreda/tv-ta-ligado/internal/facts"
+	"github.com/gloffreda/tv-ta-ligado/internal/rundown"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
+	"github.com/gloffreda/tv-ta-ligado/internal/textutil"
 )
 
 // Blocos de dados (nome do bloco no segmento).
@@ -39,6 +42,9 @@ type Builder struct {
 	HeadlineWindow time.Duration
 	HeadlineReuse  time.Duration
 	HeadlineCount  int
+	// Manchetes pelo título: crédito de cada fonte (feeds.yaml) e temas fora do brief.
+	Credits map[string]string
+	Exclude config.ExcludeRules
 }
 
 func (b *Builder) now() time.Time {
@@ -281,6 +287,72 @@ func (b *Builder) market(ctx context.Context, now time.Time) ([]check.Line, []fa
 
 // ---- manchetes (Orlando e Duda alternando) ----
 
+// Palavras que marcam notícia sensível (morte, violência, desastre, doença):
+// a manchete vai ao ar, mas o segmento fica em modo sério.
+var sensitiveWords = []string{"morte", "morre", "morrem", "morreu", "morto", "mortos", "morta", "mortas", "mata", "matou", "assassinato",
+	"assassinada", "assassinado", "homicídio", "feminicídio", "tiro", "baleado", "baleada", "tiroteio", "ataque", "guerra", "bomba",
+	"acidente", "tragédia", "desastre", "incêndio", "enchente", "inundação", "deslizamento", "terremoto", "furacão", "vítima", "vítimas",
+	"ferido", "feridos", "estupro", "sequestro", "violência", "agressão", "suicídio", "doença", "câncer", "vírus", "epidemia", "surto"}
+
+var reTitleSpace = regexp.MustCompile(`\s+`)
+
+// titleFacts transforma títulos de matérias em fatos (o título, literal, com o
+// crédito do veículo). Fica de fora título com nome de pessoa ou outro nome
+// fora da allowlist, tema fora do brief (saúde) e título curto demais.
+func (b *Builder) titleFacts(ctx context.Context, now time.Time, win, reuse time.Duration, n int, have []facts.Fact) ([]facts.Fact, error) {
+	arts, err := b.Store.HeadlineArticles(ctx, now, win, reuse, 60)
+	if err != nil {
+		return nil, err
+	}
+	arts, _ = rundown.Exclude(arts, b.Exclude.URLParts, b.Exclude.Keywords)
+	known, err := b.Store.AllEntities(ctx)
+	if err != nil {
+		return nil, err
+	}
+	used := map[int64]bool{}
+	for _, f := range have {
+		if f.ArticleID != nil {
+			used[*f.ArticleID] = true
+		}
+	}
+	var out []facts.Fact
+	for _, a := range arts {
+		if len(out) >= n {
+			break
+		}
+		credit := b.Credits[a.SourceName]
+		if credit == "" || used[a.ID] {
+			continue
+		}
+		title := strings.TrimSpace(reTitleSpace.ReplaceAllString(a.Title, " "))
+		title = strings.TrimRight(title, " .;:")
+		if len(strings.Fields(title)) < 5 || strings.ContainsAny(title, "?!\"“”") {
+			continue
+		}
+		if b.Lex != nil && !b.Lex.Analyze(title, known, nil).Empty() {
+			continue // nome fora da allowlist: sem entidade checada, não vai pelo título
+		}
+		sens := false
+		for _, w := range sensitiveWords {
+			if textutil.ContainsPhrase(title, w) {
+				sens = true
+				break
+			}
+		}
+		id := a.ID
+		f := facts.Fact{ArticleID: &id, Kind: facts.Headline, Claim: title + ".", AsOf: now, SourceName: credit, SourceURL: a.URL,
+			Series: fmt.Sprintf("title:%d", a.ID), ExpiresAt: now.Add(24 * time.Hour), Sensitive: sens}
+		fid, err := b.Store.UpsertFact(ctx, f)
+		if err != nil {
+			return out, err
+		}
+		f.ID = fid
+		used[a.ID] = true
+		out = append(out, f)
+	}
+	return out, nil
+}
+
 func outlet(name string) (upper, lower string) {
 	art, ok := outletArticle[name]
 	if !ok {
@@ -304,6 +376,13 @@ func (b *Builder) headlines(ctx context.Context, now time.Time) ([]check.Line, [
 	hs, err := b.Store.RecentHeadlineFacts(ctx, now, win, reuse, n)
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(hs) < n {
+		more, err := b.titleFacts(ctx, now, win, reuse, n-len(hs), hs)
+		if err != nil {
+			return nil, nil, err
+		}
+		hs = append(hs, more...)
 	}
 	if len(hs) == 0 {
 		return nil, nil, ErrNoData

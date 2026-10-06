@@ -45,3 +45,31 @@ func (s *Store) DataStock(ctx context.Context, block string, since time.Time) (i
 		  AND NOT EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped')`, block, since).Scan(&n)
 	return n, err
 }
+
+// HeadlineArticles: matérias recentes cujo título pode virar manchete lida no
+// ar (nenhum fato delas foi manchete de segmento de dados há menos de reuse).
+func (s *Store) HeadlineArticles(ctx context.Context, now time.Time, window, reuse time.Duration, limit int) ([]Article, error) {
+	rows, err := s.DB.Query(ctx, `
+		SELECT `+articleCols+`
+		FROM articles a JOIN sources src ON src.id = a.source_id
+		WHERE COALESCE(a.published_at, a.fetched_at) >= $1 AND COALESCE(a.published_at, a.fetched_at) <= $2
+		  AND NOT EXISTS (
+		    SELECT 1 FROM line_claims lc JOIN lines l ON l.id=lc.line_id JOIN segments sg ON sg.id=l.segment_id
+		    JOIN facts f ON f.id=lc.fact_id
+		    WHERE sg.origin='data' AND sg.created_at >= $3 AND f.article_id=a.id)
+		ORDER BY COALESCE(a.published_at, a.fetched_at) DESC
+		LIMIT $4`, now.Add(-window), now, now.Add(-reuse), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Article
+	for rows.Next() {
+		a, err := scanArticle(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}

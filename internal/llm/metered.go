@@ -65,8 +65,9 @@ func Cost(p config.Price, in, out int) float64 {
 
 // Multiplicadores do cache de prompt (TTL de 5 min) sobre o preço de entrada.
 const (
-	CacheWriteMult = 1.25
-	CacheReadMult  = 0.10
+	CacheWriteMult   = 1.25
+	CacheWrite1hMult = 2.00
+	CacheReadMult    = 0.10
 )
 
 // CostWithCache inclui a gravação e a leitura do cache.
@@ -113,7 +114,8 @@ func (m *Metered) Complete(ctx context.Context, req Request) (Response, error) {
 	if !ok {
 		slog.Warn("modelo sem preço configurado; custo registrado como 0", "model", req.Model)
 	}
-	resp.CostUSD = CostWithCache(p, resp.InputTokens, resp.OutputTokens, resp.CacheReadTokens, resp.CacheWriteTokens)
+	resp.CostUSD = CostWithCache(p, resp.InputTokens, resp.OutputTokens, resp.CacheReadTokens, resp.CacheWriteTokens-resp.CacheWrite1h) +
+		float64(resp.CacheWrite1h)*CacheWrite1hMult*p.InputPerMTok/1e6
 	call := LLMCall{Purpose: req.Purpose, Model: req.Model, InputTokens: resp.InputTokens, OutputTokens: resp.OutputTokens, CostUSD: resp.CostUSD,
 		CacheRead: resp.CacheReadTokens, CacheWrite: resp.CacheWriteTokens, At: m.now()}
 	if id, ok := SegmentFrom(ctx); ok {

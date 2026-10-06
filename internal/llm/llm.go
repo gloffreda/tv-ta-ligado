@@ -24,6 +24,9 @@ type Request struct {
 	// CacheSystem marca o System (parte fixa: regras, personas, allowlist,
 	// glossário) para cache de prompt. Só cacheia acima do mínimo do modelo.
 	CacheSystem bool
+	// CacheTTL: "" (5 min) ou "1h". Chamadas espaçadas (roteiro a cada 20–30
+	// min) só reaproveitam o cache com 1 h; a gravação custa 2x a entrada.
+	CacheTTL string
 }
 
 type Response struct {
@@ -33,6 +36,7 @@ type Response struct {
 	OutputTokens     int
 	CacheReadTokens  int
 	CacheWriteTokens int
+	CacheWrite1h     int     // parte da gravação com TTL de 1 h (custa 2x, não 1,25x)
 	CostUSD          float64 // preenchido pelo Metered
 }
 

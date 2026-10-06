@@ -1,9 +1,17 @@
-# TV Tá Ligado: texto checado, voz e linha do tempo (Sprints 1 e 2)
+# TV Tá Ligado: canal de notícias feito por IA (Sprints 1 a 3)
 
-Canal de notícias 24/7 apresentado por dois avatares de IA (Orlando Pimenta e Duda
-Faísca). Este sprint entrega só o texto: ingerir fontes, montar a pauta, escrever o
-roteiro, checar cada fato e gravar os segmentos aprovados. Ainda não há voz, vídeo
-nem frontend.
+Canal de notícias apresentado por avatares de IA (Orlando Pimenta, Duda Faísca e
+Glória Garoa, a moça do tempo). Ingere fontes, monta a pauta, escreve o roteiro,
+checa cada fato, dá voz (Kokoro, local), agenda uma linha do tempo única e mostra
+tudo num site público (`/` em pixel art e `/humano` em vetor), com balões, fontes
+e grade ao vivo.
+
+**Modo sob demanda (padrão):** o canal fica em repouso, sem gastar nada de API.
+Ele só trabalha quando alguém aperta **"Ligar a TV"** na página, digita o token de
+administração e confirma com `LIGAR`. A sessão desliga sozinha no botão
+"Desligar", depois de 5 min sem ninguém assistindo, em `SESSION_MAX_MIN` (60) ou em
+`SESSION_MAX_USD` (US$ 2). Nada liga sozinho: nem `make up`, nem reinício de
+container, nem reboot do host.
 
 > **Regra inegociável:** nenhuma fala com fato vai ao ar sem uma fonte que a sustente.
 > Na dúvida, a fala é cortada.
@@ -15,15 +23,18 @@ migrações e build rodam em containers. Tudo usa o projeto Compose `tvtl`, a re
 `tvtl_net` e volumes `tvtl_*`, sem publicar portas.
 
 ```bash
-cp .env.example .env        # preencha ANTHROPIC_API_KEY
-make up                     # Postgres + build da imagem + migrações (não gera nada)
-make test                   # testes offline (LLM mockado) + integração em Postgres efêmero
-make run                    # inicia o loop: ingestão a cada 5 min + blocos da grade
-make logs                   # acompanha o loop
+cp .env.example .env        # preencha ANTHROPIC_API_KEY e TVTL_ADMIN_TOKEN
+make up                     # sobe tudo EM REPOUSO: banco, api, site, túnel, vozes, supervisor
+make url                    # endereço público atual (https://….trycloudflare.com)
+make test                   # testes Go (LLM mockado, Postgres efêmero) + testes do player
+make logs                   # acompanha o supervisor
 make show N=5               # últimos 5 segmentos aprovados, com fontes
 make render MIN=15          # out/tvtl-*.mp3 + out/legendas.srt: ouvir o canal
 make debug-up               # API em http://127.0.0.1:58080/v1/now (só local)
 ```
+
+Gere o token com `head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'` e guarde em
+`TVTL_ADMIN_TOKEN=` no `.env`. A página pede o token toda vez (nunca guarda).
 
 Vozes: `audition/index.html` (abra no navegador) traz as candidatas às cegas; o
 mapa está em `audition/key.md`. Para escolher, edite `voice:` em
@@ -45,11 +56,16 @@ Outros alvos e subcomandos:
 | `make down` | derruba só o projeto `tvtl` (volumes preservados) |
 | `make clean` | apaga containers **e volumes** do projeto (pede confirmação) |
 | `make migrate` | aplica migrações |
-| `make audition` | regera a audição às cegas das vozes (provedores aprovados) |
+| `make audition [ONLY=gloria]` | audição às cegas das vozes; `ONLY` acrescenta só essas personas sem reembaralhar as outras |
+| `make tvtl ARGS="generate --block humor"` | comando manual (`TVTL_MANUAL=1`, a única exceção à trava; custa API) |
+| `make staging-url` | endereço público da homologação |
+| `make e2e [E2E_MIN=30]` | Playwright em container contra a **homologação** (liga sessão lá; recusa o endereço de produção) |
+| `make e2e-prod-rest` | produção **só em repouso** (FORA DO AR, HTTPS, 404s); nunca liga |
+| `make web-test` | vitest e checagem de tipos do player (container node) |
 | `make bench` | benchmark dos TTS locais (fator de tempo real) |
 | `make render FROM=-15m MIN=15` | MP3 + legendas.srt da linha do tempo |
 | `make staging-up` / `staging-down` | homologação no futuro (`CLOCK_OFFSET=+2h`), projeto `tvtl-staging` isolado |
-| `make audit` | auditoria adversarial: 60 casos contra o juiz **real** (custa ~US$ 0,07) |
+| `make audit` | auditoria adversarial: 73 casos contra o juiz **real** (custa ~US$ 0,06) |
 | `make ingest` | uma rodada de ingestão (sem LLM: título, resumo e, se CC BY, corpo) |
 | `make debug-up` / `make debug-down` | expõe o Postgres em `127.0.0.1:${TVTL_PG_PORT:-55432}` |
 | `docker compose -p tvtl run --rm tvtl feeds-check` | valida as URLs de `config/feeds.yaml` |
@@ -119,7 +135,17 @@ aplicados estão em [DECISIONS.md](DECISIONS.md).
 | `MAX_DAILY_USD` | `8.00` | teto diário (fuso de Brasília) |
 | `GENERATE` | `on` | chave geral (`on`/`off`) |
 | `REPLAY_WHEN_IDLE` | `off` | `on`: com `VIEWERS=0`, reprisa em vez de gerar |
-| `VIEWERS` | `1` | audiência (variável por ora; Sprint 3: contagem real) |
+| `VIEWERS` | `1` | só no `RUN_MODE=always` (sob demanda, a audiência é a contagem real de SSE) |
+| `RUN_MODE` | `on_demand` | `on_demand`: só trabalha dentro de sessão; `always`: modo antigo (testes locais) |
+| `TVTL_ADMIN_TOKEN` | — | token que liga a sessão (pedido na página, junto com `LIGAR`); sem ele, ninguém liga |
+| `TVTL_STAGING_ADMIN_TOKEN` | — | token da homologação (nunca o de produção) |
+| `SESSION_MAX_MIN` | `60` | duração máxima de uma sessão |
+| `SESSION_MAX_USD` | `2` | gasto máximo de uma sessão |
+| `SESSION_IDLE_MIN` | `5` | sem espectador por esse tempo, a sessão desliga |
+| `PUBLIC_MODE` | `preview` | selo: `preview` → EM TESTE; `live` → AO VIVO (bloqueio eleitoral → REPRISE) |
+| `SITE_ORIGIN` | — | domínio aceito no `Origin` do POST de sessão; vazio = o host recebido pelo nginx |
+| `CF_TUNNEL_TOKEN` | — | túnel nomeado do Cloudflare; sem ele, túnel rápido |
+| `TVTL_MANUAL` | — | `1` só nos alvos manuais do Makefile; nunca no `.env` |
 | `REPLAY_WINDOW` | `6h` | janela dos segmentos aprovados que podem ser reprisados |
 | `INGEST_INTERVAL` | `5m` | intervalo da ingestão |
 | `MEMORY_HALF_LIFE_DAYS` | `7` | meia-vida do peso das memórias |
@@ -165,6 +191,48 @@ Cobertura principal:
   roteiro inválido duas vezes.
 - Fixtures: `testdata/facts.json` (20 fatos fictícios, 1 vencido), artigos fictícios
   e respostas de LLM gravadas.
+
+## O site (Sprint 3)
+
+- `web/`: Vite + React + PixiJS (TypeScript), construído em container `node` e
+  servido pelo serviço `web` (nginx, read-only, 64 MB / 0,25 CPU, sem porta).
+- `web/src/core/`: relógio (5 chamadas a `/v1/now`, descarta a pior, mediana de
+  hora + RTT/2), buffer da linha do tempo, SSE com backoff, áudio (abre mudo; o
+  som liga no ponto exato da fala; deriva > 150 ms corrigida na próxima fala),
+  balões, painéis, grade e acessibilidade. Nada de desenho.
+- `web/src/renderers/`: `PixelRenderer` (PixiJS, 160×90 em escala inteira) e
+  `VectorRenderer` (SVG). As duas usam as mesmas 9 bocas do Rhubarb, piscar,
+  olhar e gestos. Os rigs vêm de `rigs.pixel`/`rigs.vector` em
+  `config/personas/<id>.yaml` (via `/v1/schedule`).
+- O nginx faz proxy **só** de `GET /v1/now`, `/v1/timeline`, `/v1/events`,
+  `/v1/schedule`, `/v1/session`, `/media/<hash>.ogg` e `POST /v1/session/start|stop`.
+  Todo o resto → 404. Sem CORS. 10 req/s por IP (rajada 20).
+
+### Ligar e desligar
+
+1. A página mostra **FORA DO AR** e o botão **Ligar a TV**.
+2. O painel mostra a duração máxima e o teto de gasto; digite o token e `LIGAR`.
+3. `POST /v1/session/start` exige token + `confirm: "LIGAR"` + `Origin` do próprio
+   site; qualquer outra coisa → 403, registrado em `system_events`
+   (`session_denied`). No máximo 3 tentativas por minuto por IP.
+4. **Desligar** é livre (sem confirmação; usa uma chave da sessão guardada só na
+   memória da aba). Não há renovação automática.
+5. Toda sessão fica na tabela `sessions` (início, fim, motivo, gasto, IP);
+   `GET /v1/session` mostra a última.
+
+### Túnel nomeado com domínio próprio
+
+Sem `CF_TUNNEL_TOKEN`, o serviço `tunnel` abre um túnel rápido
+(`*.trycloudflare.com`, muda a cada reinício; `make url`). O túnel rápido não
+entrega SSE em tempo real; o player não depende disso (consulta sessão e linha do
+tempo periodicamente). Para um domínio fixo:
+
+1. Cloudflare Zero Trust → **Networks → Tunnels → Create a tunnel** (Cloudflared).
+2. Copie o token do comando de instalação e grave `CF_TUNNEL_TOKEN=` no `.env`.
+3. Em **Public Hostname**, aponte o seu hostname para `http://web:80`.
+4. Grave `SITE_ORIGIN=https://seu.dominio` no `.env` e rode `make up`.
+
+Só o `web` passa pelo túnel. Banco, `api`, TTS e o resto nunca.
 
 ## Voz e linha do tempo (Sprint 2)
 

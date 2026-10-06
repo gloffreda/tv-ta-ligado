@@ -206,7 +206,7 @@ func (w *Writer) Write(ctx context.Context, in Input) (Script, int, error) {
 		if lastErr != nil {
 			p += fmt.Sprintf("\nA resposta anterior foi recusada pelo validador: %v\nCorrija e responda de novo só com o JSON.\n", lastErr)
 		}
-		resp, err := w.LLM.Complete(ctx, llm.Request{Purpose: "script", Model: w.Model, System: w.system(), Prompt: p, MaxTokens: 16000, Effort: "medium", CacheSystem: true})
+		resp, err := w.LLM.Complete(ctx, llm.Request{Purpose: "script", Model: w.Model, System: w.system(), Prompt: p, MaxTokens: 16000, Effort: "medium", CacheSystem: true, CacheTTL: "1h"})
 		if err != nil {
 			if llm.Fatal(err) {
 				return Script{}, attempt, err
@@ -293,7 +293,7 @@ func (r *Rewriter) Rewrite(ctx context.Context, original, last check.Line, reaso
 	if len(r.Allow) > 0 {
 		sys += "\n\nTERMOS PERMITIDOS (organizações, lugares, siglas, veículos, avatares): " + strings.Join(r.Allow, ", ")
 	}
-	resp, err := r.LLM.Complete(ctx, llm.Request{Purpose: "rewrite", Model: r.Model, System: sys, Prompt: b.String(), MaxTokens: 4000, Effort: "low", CacheSystem: true})
+	resp, err := r.LLM.Complete(ctx, llm.Request{Purpose: "rewrite", Model: r.Model, System: sys, Prompt: b.String(), MaxTokens: 4000, Effort: "low", CacheSystem: true, CacheTTL: "1h"})
 	if err != nil {
 		return check.Line{}, err
 	}

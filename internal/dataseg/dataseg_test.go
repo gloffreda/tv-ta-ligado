@@ -104,6 +104,7 @@ func TestBuildDataSegments(t *testing.T) {
 	seed(t, st)
 	ctx := context.Background()
 	b := &Builder{Store: st, Lex: lexicon(t), Loc: loc, Now: func() time.Time { return now }, Rand: rand.New(rand.NewPCG(1, 2))}
+	// sem crédito configurado, título não vira manchete (o teste das manchetes por fato extraído vem primeiro)
 	for _, block := range []string{Weather, Market, Headlines} {
 		for round := 0; round < 4; round++ { // várias sementes: todas as variações passam no checador
 			b.Rand = rand.New(rand.NewPCG(uint64(round), 9))
@@ -177,5 +178,59 @@ func TestEveryWeatherVariantPassesChecker(t *testing.T) {
 				t.Errorf("%q: %v", text, res.Reasons)
 			}
 		}
+	}
+}
+
+func TestHeadlinesFromTitles(t *testing.T) {
+	st := testfix.DB(t, "dataseg")
+	ctx := context.Background()
+	src, err := st.UpsertSource(ctx, "Agência Brasil — Últimas", "rss", "https://ab.invalid/rss", "cc-by")
+	if err != nil {
+		t.Fatal(err)
+	}
+	titles := []string{
+		"Banco Central mantém a taxa Selic em 15% ao ano",          // vira manchete
+		"Carlos Mendes Ribeiro assume comando da empresa estatal",  // nome de pessoa: fora
+		"Vacina contra gripe chega aos postos de São Paulo",        // saúde: fora do brief
+		"Incêndio atinge depósito em São Paulo e deixa 3 feridos",  // sensível: vai, modo sério
+		"Chuva forte provoca alagamentos em Belo Horizonte nesta terça",
+	}
+	pub := now.Add(-time.Hour)
+	for i, ti := range titles {
+		url := fmt.Sprintf("https://ab.invalid/%d", i)
+		if _, err := st.InsertArticle(ctx, store.Article{SourceID: src, URL: url, Title: ti, TitleHash: url, PublishedAt: &pub}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sched, _ := config.LoadSchedule(testfix.Path("config"))
+	b := &Builder{Store: st, Lex: lexicon(t), Loc: loc, Now: func() time.Time { return now }, Rand: rand.New(rand.NewPCG(3, 4)),
+		Credits: map[string]string{"Agência Brasil — Últimas": "Agência Brasil"}, Exclude: sched.Exclude}
+	res, err := b.Build(ctx, Headlines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Dropped) > 0 {
+		t.Fatalf("falas reprovadas: %v", res.Dropped)
+	}
+	lines, _ := st.LinesOf(ctx, res.SegmentID)
+	var all []string
+	for _, l := range lines {
+		all = append(all, l.Text)
+	}
+	text := strings.Join(all, "\n")
+	for _, want := range []string{"Selic em 15% ao ano", "Agência Brasil", "Belo Horizonte", "3 feridos"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("faltou %q:\n%s", want, text)
+		}
+	}
+	for _, no := range []string{"Carlos Mendes", "Vacina"} {
+		if strings.Contains(text, no) {
+			t.Errorf("não deveria ir ao ar: %q", no)
+		}
+	}
+	var sens bool
+	st.DB.QueryRow(ctx, `SELECT sensitive FROM segments WHERE id=$1`, res.SegmentID).Scan(&sens)
+	if !sens {
+		t.Error("segmento com incêndio e feridos fica em modo sério")
 	}
 }

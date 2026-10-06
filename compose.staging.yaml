@@ -125,9 +125,9 @@ services:
   tts-kokoro:
     image: tvtl-tts-kokoro:local
     environment:
-      TTS_THREADS: ${TVTL_STAGING_KOKORO_CPUS:-1}
+      TTS_THREADS: ${TVTL_STAGING_KOKORO_CPUS:-2}
     networks: [tvtl_staging_net]
     restart: unless-stopped
     mem_limit: 1536m
-    cpus: ${TVTL_STAGING_KOKORO_CPUS:-1}
+    cpus: ${TVTL_STAGING_KOKORO_CPUS:-2}
     logging: *logging

@@ -293,7 +293,16 @@ func (a *app) dataBuilder() *dataseg.Builder {
 	if err != nil {
 		slog.Warn("dados: allowlist", "erro", err)
 	}
-	return &dataseg.Builder{Store: a.store, Lex: lex, Loc: a.env.Location, Now: a.now}
+	b := &dataseg.Builder{Store: a.store, Lex: lex, Loc: a.env.Location, Now: a.now, Credits: map[string]string{}}
+	if feeds, err := config.LoadFeeds(a.env.ConfigDir); err == nil {
+		for _, f := range feeds.RSS {
+			b.Credits[f.Name] = f.Credit
+		}
+	}
+	if sched, err := config.LoadSchedule(a.env.ConfigDir); err == nil {
+		b.Exclude = sched.Exclude
+	}
+	return b
 }
 
 // dataStock mantém pelo menos um segmento de cada bloco de dados pronto (com
@@ -316,10 +325,16 @@ func (a *app) dataStock(ctx context.Context, ds *dataseg.Builder, v *voice.Voice
 			return
 		}
 		n, err := a.store.DataStock(ctx, b.Name, now.Add(-b.Every.Duration))
-		if err != nil || n > 0 {
+		// manchetes: sempre 2 prontas (matéria nova chega a cada ingestão);
+		// tempo e mercado: os dados mudam pouco, no máximo um a cada every/2.
+		target := 1
+		if b.Data == "headlines" {
+			target = 2
+		}
+		if err != nil || n >= target {
 			continue
 		}
-		if last, ok, _ := a.store.LastSegmentAt(ctx, b.Name, "approved"); ok && now.Sub(last) < b.Every.Duration/2 && !startup {
+		if last, ok, _ := a.store.LastSegmentAt(ctx, b.Name, "approved"); ok && now.Sub(last) < b.Every.Duration/2 && !startup && b.Data != "headlines" {
 			continue
 		}
 		t0 := time.Now()
