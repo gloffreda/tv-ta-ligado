@@ -51,7 +51,7 @@ const usage = `uso: tvtl <comando> [opções]
   stats                       falas cortadas e custo médio por bloco
   audit [--dir D] [--banter-model M]   auditoria adversarial com o juiz real
   tts-bench [--providers a,b] [--seconds 60]   fator de tempo real dos TTS locais
-  audition [--out audition]   audição às cegas das vozes candidatas
+  audition [--out audition] [--only gloria]   audição às cegas das vozes candidatas
   voice --segment ID          sintetiza as falas de um segmento aprovado
   serve [--listen :8080]      API da linha do tempo (/v1/now, /v1/timeline, /v1/events, /media)
   render --from now --minutes 15 --out out   MP3 + legendas.srt da linha do tempo
@@ -151,6 +151,7 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 	providers := fs.String("providers", "chatterbox,kokoro,piper", "provedores do benchmark")
 	seconds := fs.Int("seconds", 60, "segundos de áudio por provedor no benchmark")
 	outDir := fs.String("out", "audition", "pasta de saída (audition, render)")
+	only := fs.String("only", "", "audição: só estas personas (vírgula); as outras ficam como estão")
 	from := fs.String("from", "now", "início do render: now, -15m, +5m ou RFC 3339")
 	minutes := fs.Int("minutes", 15, "minutos do render")
 	target := fs.String("target", "postgres:5432", "destino")
@@ -195,7 +196,11 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 	case "audit":
 		return a.audit(ctx, *auditDir, *banterModel)
 	case "audition":
-		return a.audition(ctx, *outDir)
+		var ps []string
+		if *only != "" {
+			ps = strings.Split(*only, ",")
+		}
+		return a.audition(ctx, *outDir, ps...)
 	case "serve":
 		return a.serve(ctx, *listen)
 	case "render":

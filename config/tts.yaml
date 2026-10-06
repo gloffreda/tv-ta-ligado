@@ -32,6 +32,7 @@ audition:
   # ~20 s cada, com número em reais, porcentagem, sigla e pergunta.
   text:
     orlando: "Boa noite. Isso está checado? Então eu leio. O dólar comercial fechou a R$ 5,21, e o IPCA, o índice oficial de inflação, variou 0,32% no mês. O Copom, que define a taxa Selic, volta a se reunir em breve. E você, já entendeu o que isso muda no seu bolso?"
+    gloria: "Boa noite, meus amores. Em São Paulo, máxima de 27 °C, mínima de 18 °C e 60% de chance de chuva. No Recife, 31 °C e céu aberto. Atenção: o INMET emitiu aviso de tempestade, com grau de severidade perigo potencial, para áreas de 4 estados. Leva o guarda-chuva. Mas leva com estilo."
     duda: "E aí, galera! Traduzindo pra quem tá chegando agora: com o dólar a R$ 5,21, aquela viagem ficou um pouquinho mais cara. O IPCA, a inflação oficial, mexeu 0,32% no mês. Parece pouco, né? Mas no fim do mês o bolso sente. Tá ligado?"
   # Até 3 vozes pt-BR por provedor aprovado. A ordem é embaralhada na audição.
   candidates:
@@ -39,6 +40,15 @@ audition:
       - {provider: kokoro, name: pm_santa, rate: 0.92, pitch: -1}
       - {provider: kokoro, name: pm_alex, rate: 0.92, pitch: -1}
       - {provider: kokoro, name: pf_dora, rate: 0.95, pitch: -2}
+    # Glória: a única voz feminina pt-BR do Kokoro já é da Duda. Candidatas:
+    # pf_dora bem diferente (mais lenta e grave) e misturas de pf_dora com
+    # vozes femininas de outros idiomas (pt-BR com peso >= 0,5).
+    gloria:
+      - {provider: kokoro, name: pf_dora, rate: 0.92, pitch: -2.5}
+      - {provider: kokoro, name: "pf_dora*0.5+if_sara*0.5", rate: 0.98, pitch: 0}
+      - {provider: kokoro, name: "pf_dora*0.5+ff_siwis*0.5", rate: 0.98, pitch: 0}
+      - {provider: kokoro, name: "pf_dora*0.5+hf_alpha*0.5", rate: 0.98, pitch: 0}
+      - {provider: kokoro, name: "pf_dora*0.6+bf_isabella*0.4", rate: 0.98, pitch: 0}
     duda:
       - {provider: kokoro, name: pf_dora, rate: 1.08, pitch: 0.5}
       - {provider: kokoro, name: pm_alex, rate: 1.10, pitch: 1}

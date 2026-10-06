@@ -49,14 +49,37 @@ func LoadTTSConfig(path string) (TTSConfig, error) {
 // Audition gera audition/<persona>/<letra>.mp3 sem o nome do provedor, o mapa
 // key.md e um index.html estático para ouvir lado a lado. Só candidatas de
 // provedores aprovados e disponíveis entram.
-func Audition(ctx context.Context, cfg TTSConfig, providers map[string]tts.Provider, proc audio.Processor, dict speech.Dict, out string, seed int64) (string, error) {
+//
+// only: gera só essas personas e preserva as letras das outras (lidas do
+// key.md existente), para acrescentar uma voz nova sem reembaralhar as antigas.
+func Audition(ctx context.Context, cfg TTSConfig, providers map[string]tts.Provider, proc audio.Processor, dict speech.Dict, out string, seed int64, only ...string) (string, error) {
 	type entry struct {
 		Persona, Letter string
 		Voice           tts.Voice
 		Info            ProviderInfo
 		Seconds, Proc   float64
+		Raw             string // linha preservada do key.md anterior
 	}
 	var all []entry
+	keep := map[string]bool{}
+	for _, o := range only {
+		keep[o] = true
+	}
+	if len(only) > 0 {
+		old, _ := os.ReadFile(filepath.Join(out, "key.md"))
+		for _, ln := range strings.Split(string(old), "\n") {
+			cols := strings.Split(ln, "|")
+			if len(cols) < 4 || !strings.HasSuffix(strings.TrimSpace(cols[2]), ".mp3") {
+				continue
+			}
+			persona := strings.TrimSpace(cols[1])
+			if keep[persona] {
+				continue
+			}
+			letter := strings.TrimSuffix(filepath.Base(strings.TrimSpace(cols[2])), ".mp3")
+			all = append(all, entry{Persona: persona, Letter: letter, Raw: ln})
+		}
+	}
 	var skipped []string
 	personas := make([]string, 0, len(cfg.Audition.Candidates))
 	for p := range cfg.Audition.Candidates {
@@ -65,6 +88,9 @@ func Audition(ctx context.Context, cfg TTSConfig, providers map[string]tts.Provi
 	sort.Strings(personas)
 	rng := rand.New(rand.NewSource(seed))
 	for _, persona := range personas {
+		if len(only) > 0 && !keep[persona] {
+			continue
+		}
 		cands := append([]tts.Voice{}, cfg.Audition.Candidates[persona]...)
 		rng.Shuffle(len(cands), func(i, j int) { cands[i], cands[j] = cands[j], cands[i] }) // às cegas
 		text := cfg.Audition.Text[persona]
@@ -101,7 +127,7 @@ func Audition(ctx context.Context, cfg TTSConfig, providers map[string]tts.Provi
 			if err := os.WriteFile(filepath.Join(dir, string(letter)+".mp3"), mp3, 0o644); err != nil {
 				return "", err
 			}
-			all = append(all, entry{persona, string(letter), v, info, dur.Seconds(), procSec})
+			all = append(all, entry{Persona: persona, Letter: string(letter), Voice: v, Info: info, Seconds: dur.Seconds(), Proc: procSec})
 			letter++
 		}
 	}
@@ -111,7 +137,12 @@ func Audition(ctx context.Context, cfg TTSConfig, providers map[string]tts.Provi
 	fmt.Fprintf(&k, "# Audição às cegas — mapa das letras\n\nGerado em %s. **Não abra antes de ouvir.**\n\n", time.Now().UTC().Format("02/01/2006 15:04 UTC"))
 	fmt.Fprintf(&k, "Custo/mês estimado para %s caracteres. RTF = segundos de processamento por segundo de áudio no benchmark (limite de CPU de produção).\n\n", fmtThousands(cfg.MonthlyChars))
 	k.WriteString("| avatar | arquivo | provedor | voz | rate | pitch (st) | estilo | RTF (benchmark) | duração (s) | custo/mês (US$) |\n|---|---|---|---|---|---|---|---|---|---|\n")
+	sort.SliceStable(all, func(i, j int) bool { return all[i].Persona < all[j].Persona })
 	for _, e := range all {
+		if e.Raw != "" {
+			k.WriteString(e.Raw + "\n")
+			continue
+		}
 		cost := float64(cfg.MonthlyChars) * e.Info.PricePerMChar / 1e6
 		fmt.Fprintf(&k, "| %s | %s/%s.mp3 | %s | %s | %.2f | %+.1f | %s | %.2f | %.1f | %.2f |\n",
 			e.Persona, e.Persona, e.Letter, e.Voice.Provider, e.Voice.Name, e.Voice.Rate, e.Voice.Pitch, firstNonEmpty(e.Voice.Style, "—"), e.Info.RTF, e.Seconds, cost)

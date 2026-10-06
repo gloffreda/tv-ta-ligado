@@ -98,13 +98,13 @@ func (a *app) voicer(ctx context.Context) (*voice.Voicer, error) {
 		Lip: &lipsync.Client{URL: envOr("LIPSYNC_URL", "http://lipsync:8080"), HTTP: &http.Client{Timeout: 3 * time.Minute}}}, nil
 }
 
-func (a *app) audition(ctx context.Context, out string) error {
+func (a *app) audition(ctx context.Context, out string, only ...string) error {
 	ps, cfg, notes := a.ttsProviders(ctx)
 	dict, err := speech.LoadDict(filepath.Join(a.env.ConfigDir, "pronunciation.yaml"))
 	if err != nil {
 		return err
 	}
-	key, err := voice.Audition(ctx, cfg, ps, audio.FFmpeg{}, dict, out, time.Now().UnixNano())
+	key, err := voice.Audition(ctx, cfg, ps, audio.FFmpeg{}, dict, out, time.Now().UnixNano(), only...)
 	if err != nil {
 		return err
 	}
