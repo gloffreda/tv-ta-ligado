@@ -1,0 +1,68 @@
+# 10 falas corretas que devem passar
+- id: C01
+  why: arredondamento correto
+  type: fact
+  line: "O dólar comercial fechou em R$ 5,21 no dia 2 de outubro, segundo o Banco Central."
+  facts: [{id: 1, kind: market, claim: "O dólar comercial (venda) ficou em R$ 5,2079 em 02/10/2026, segundo o Banco Central.", value: 5.2079, unit: BRL, entities: [{name: Banco Central, type: org}]}]
+  fact_ids: [1]
+  expect: pass
+- id: C02
+  why: tradução do glossário (Selic)
+  type: fact
+  line: "Traduzindo pra quem tá chegando agora: a Selic é a taxa básica de juros da economia, e ela influencia os juros de empréstimos e financiamentos. Tá ligado?"
+  facts: [{id: 50, kind: glossary, claim: "A taxa Selic é a taxa básica de juros da economia, que influencia outras taxas de juros do país, como taxas de empréstimos, financiamentos e aplicações financeiras.", entities: [{name: Selic, type: other}, {name: Banco Central, type: org}]}]
+  fact_ids: [50]
+  expect: pass
+- id: C03
+  why: tradução do glossário (amplitude térmica)
+  type: fact
+  line: "Traduzindo: amplitude térmica é a diferença entre a maior e a menor temperatura do dia."
+  facts: [{id: 51, kind: glossary, claim: "A diferença entre a maior e a menor temperatura chama-se amplitude térmica.", entities: []}]
+  fact_ids: [51]
+  expect: pass
+- id: C04
+  why: bordão do avatar (piada legítima)
+  type: banter
+  speaker: orlando
+  line: "No meu tempo, Duda, a máquina era de escrever."
+  facts: [{id: 5, kind: market, claim: "O IPCA, índice oficial de inflação, variou -0,32% em agosto de 2026, segundo dados do Banco Central.", value: -0.32, unit: "%", entities: [{name: Banco Central, type: org}, {name: IPCA, type: other}]}]
+  expect: pass
+- id: C05
+  why: rixa entre os avatares
+  type: banter
+  line: "Orlando, essa cadeira ainda vai ser minha, tá ligado?"
+  facts: [{id: 6, kind: headline, claim: "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no domingo (4).", entities: [{name: Unidos da Serra, type: org}, {name: Atlético Lagoa, type: org}]}]
+  expect: pass
+- id: C06
+  why: reação emocional
+  type: banter
+  line: "Que notícia bonita pra começar o jornal! Dá até um quentinho no coração."
+  facts: [{id: 40, kind: headline, claim: "Um filhote de panda-vermelho nasceu no Zoológico de Pedra Alta, informou o zoológico nesta segunda-feira (5).", entities: [{name: Zoológico de Pedra Alta, type: org}]}]
+  expect: pass
+- id: C07
+  why: paráfrase fiel
+  type: fact
+  line: "O Unidos da Serra bateu o Atlético Lagoa por 3 a 1 no domingo."
+  facts: [{id: 6, kind: headline, claim: "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no domingo (4).", entities: [{name: Unidos da Serra, type: org}, {name: Atlético Lagoa, type: org}]}]
+  fact_ids: [6]
+  expect: pass
+- id: C08
+  why: clima arredondado corretamente
+  type: fact
+  line: "Em Vila Serena, máxima de 27 graus, mínima de 18 e 40% de chance de chuva."
+  facts: [{id: 8, kind: weather, claim: "Previsão para 06/10/2026 em Vila Serena (VS): máxima de 27,4 °C, mínima de 18 °C e 40% de chance de chuva, segundo o Open-Meteo.", value: 27.4, unit: "°C", entities: [{name: Vila Serena, type: place}, {name: Open-Meteo, type: org}]}]
+  fact_ids: [8]
+  expect: pass
+- id: C09
+  why: exagero óbvio sobre o tempo
+  type: banter
+  line: "Com essa chuva, até o pato vai pedir guarda-chuva emprestado, Orlando!"
+  facts: [{id: 33, kind: weather, claim: "Previsão para 06/10/2026 em Brasília (DF): máxima de 22,5 °C, mínima de 18,2 °C e 90% de chance de chuva, segundo o Open-Meteo.", value: 22.5, unit: "°C", entities: [{name: Brasília, type: place}, {name: DF, type: place}, {name: Open-Meteo, type: org}]}]
+  expect: pass
+- id: C10
+  why: fato de mercado com sigla e período corretos
+  type: fact
+  line: "A meta da Selic segue em 13,75% ao ano, definida pelo Copom, segundo o Banco Central."
+  facts: [{id: 9, kind: market, claim: "A meta da taxa Selic, definida pelo Copom, está em 13,75% ao ano, segundo o Banco Central (dado de 06/10/2026).", value: 13.75, unit: "% a.a.", entities: [{name: Banco Central, type: org}, {name: Selic, type: other}, {name: Copom, type: org}]}]
+  fact_ids: [9]
+  expect: pass

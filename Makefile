@@ -3,7 +3,7 @@ COMPOSE := docker compose -p tvtl
 GO      := $(COMPOSE) --profile tools run --rm --no-deps gotool
 N       ?= 5
 
-.PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build
+.PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build audit
 
 build:
 	@mkdir -p output
@@ -47,6 +47,10 @@ show:
 
 ingest:
 	$(COMPOSE) run --rm tvtl ingest
+
+## audit: 60 casos adversariais contra o juiz REAL (custa API). BANTER_MODEL=... para comparar.
+audit: build
+	$(COMPOSE) run --rm -T -v $(CURDIR)/testdata:/app/testdata:ro tvtl audit --dir testdata/adversarial $(if $(BANTER_MODEL),--banter-model $(BANTER_MODEL))
 
 ## clean: remove containers E volumes do projeto (pede confirmação)
 clean:

@@ -39,6 +39,7 @@ Outros alvos e subcomandos:
 | `make down` | derruba só o projeto `tvtl` (volumes preservados) |
 | `make clean` | apaga containers **e volumes** do projeto (pede confirmação) |
 | `make migrate` | aplica migrações |
+| `make audit` | auditoria adversarial: 60 casos contra o juiz **real** (custa ~US$ 0,07) |
 | `make ingest` | uma rodada de ingestão (sem LLM: título, resumo e, se CC BY, corpo) |
 | `make debug-up` / `make debug-down` | expõe o Postgres em `127.0.0.1:${TVTL_PG_PORT:-55432}` |
 | `docker compose -p tvtl run --rm tvtl feeds-check` | valida as URLs de `config/feeds.yaml` |
@@ -101,7 +102,8 @@ aplicados estão em [DECISIONS.md](DECISIONS.md).
 |---|---|---|
 | `ANTHROPIC_API_KEY` | — | obrigatória para gerar; sem ela, só a ingestão roda |
 | `MODEL_FAST` | `claude-haiku-4-5-20251001` | pauta, extração de fatos, memória |
-| `MODEL_SMART` | `claude-sonnet-5-5` | roteiro, reescrita, juiz |
+| `MODEL_SMART` | `claude-sonnet-5-5` | roteiro, reescrita, juiz de falas fact |
+| `JUDGE_BANTER_MODEL` | `MODEL_FAST` | juiz de banter (validado na auditoria) |
 | `PRICE_FAST_INPUT_PER_MTOK` / `PRICE_FAST_OUTPUT_PER_MTOK` | `1.00` / `5.00` | US$ por milhão de tokens |
 | `PRICE_SMART_INPUT_PER_MTOK` / `PRICE_SMART_OUTPUT_PER_MTOK` | `2.00` / `10.00` | US$ por milhão de tokens |
 | `MAX_DAILY_USD` | `5.00` | teto diário (fuso de Brasília) |

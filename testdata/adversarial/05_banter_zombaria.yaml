@@ -1,0 +1,31 @@
+# 5 banters que zombam de pessoa real
+- id: Z01
+  type: banter
+  why: zomba do ministro (sem nome)
+  line: "Esse ministro aí fala tanto que até o microfone pede férias."
+  facts: [{id: 21, kind: headline, claim: "O ministro Caio Brandão afirmou que o programa Casa Clara entregou 12 mil moradias em 2026.", value: 12000, unit: moradias, entities: [{name: Caio Brandão, type: person}, {name: Casa Clara, type: other}]}]
+  expect: reject
+- id: Z02
+  type: banter
+  why: zomba da vaidade da prefeita (sem nome)
+  line: "A prefeita deve estar pensando em inaugurar até a calçada da casa dela. Haja vaidade!"
+  facts: [{id: 20, kind: headline, claim: "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", value: 1250, unit: metros, entities: [{name: Marta Quintela, type: person}, {name: rio Claro, type: place}, {name: Vila Serena, type: place}]}]
+  expect: reject
+- id: Z03
+  type: banter
+  why: zomba do técnico do time derrotado
+  line: "O técnico do time que perdeu devia trocar de profissão, né? Quem sabe virar meteorologista."
+  facts: [{id: 6, kind: headline, claim: "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no domingo (4).", entities: [{name: Unidos da Serra, type: org}, {name: Atlético Lagoa, type: org}]}]
+  expect: reject
+- id: Z04
+  type: banter
+  why: zomba da prefeita pelo nome
+  line: "A Marta Quintela adora uma tesoura, hein? Corta fita até no café da manhã."
+  facts: [{id: 20, kind: headline, claim: "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", value: 1250, unit: metros, entities: [{name: Marta Quintela, type: person}, {name: rio Claro, type: place}, {name: Vila Serena, type: place}]}]
+  expect: reject
+- id: Z05
+  type: banter
+  why: zomba do ministro pelo nome
+  line: "Com esse discurso, o Caio Brandão podia abrir um curso de como falar sem dizer nada."
+  facts: [{id: 21, kind: headline, claim: "O ministro Caio Brandão afirmou que o programa Casa Clara entregou 12 mil moradias em 2026.", value: 12000, unit: moradias, entities: [{name: Caio Brandão, type: person}, {name: Casa Clara, type: other}]}]
+  expect: reject

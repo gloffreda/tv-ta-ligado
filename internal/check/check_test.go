@@ -117,11 +117,11 @@ func TestBanterNames(t *testing.T) {
 		}
 	}
 	fail := map[string]string{
-		"Valeu, Léo, pela pauta de hoje!":           "Léo",
-		"Clarice mandou um beijo pro estúdio.":      "Clarice",
-		"O Felipe Massa ia adorar esse estúdio.":    "Felipe",
-		"Felipe e Pipo são da mesma família.":       "Felipe",
-		"Quem diria, Massa e família no pódio.":     "",
+		"Valeu, Léo, pela pauta de hoje!":        "Léo",
+		"Clarice mandou um beijo pro estúdio.":   "Clarice",
+		"O Felipe Massa ia adorar esse estúdio.": "Felipe",
+		"Felipe e Pipo são da mesma família.":    "Felipe",
+		"Quem diria, Massa e família no pódio.":  "",
 	}
 	for text, want := range fail {
 		r := Deterministic(Line{"duda", TypeBanter, text, nil}, e)

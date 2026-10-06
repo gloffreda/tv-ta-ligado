@@ -20,6 +20,8 @@ import (
 
 	"github.com/mmcdole/gofeed"
 
+	"github.com/gloffreda/tv-ta-ligado/internal/audit"
+	"github.com/gloffreda/tv-ta-ligado/internal/check"
 	"github.com/gloffreda/tv-ta-ligado/internal/config"
 	"github.com/gloffreda/tv-ta-ligado/internal/facts"
 	"github.com/gloffreda/tv-ta-ligado/internal/ingest"
@@ -43,6 +45,7 @@ const usage = `uso: tvtl <comando> [opções]
   run                         loop: ingestão a cada 5 min e blocos conforme schedule.yaml
   show     --last N [--status approved|rejected]
   stats                       falas cortadas e custo médio por bloco
+  audit [--dir D] [--banter-model M]   auditoria adversarial com o juiz real
   debug-proxy --listen :5432 --target postgres:5432
 `
 
@@ -120,6 +123,8 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 	last := fs.Int("last", 5, "quantos segmentos")
 	status := fs.String("status", "approved", "status dos segmentos")
 	listen := fs.String("listen", ":5432", "endereço de escuta")
+	auditDir := fs.String("dir", "testdata/adversarial", "casos da auditoria")
+	banterModel := fs.String("banter-model", "", "modelo do juiz para banter (auditoria)")
 	target := fs.String("target", "postgres:5432", "destino")
 	_ = fs.Parse(args)
 
@@ -141,7 +146,7 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 
 	// Comandos que usam LLM falham já no início, antes de ingerir, se não há chave.
 	switch cmd {
-	case "ingest", "run", "rundown", "write", "check", "generate", "glossary":
+	case "ingest", "run", "rundown", "write", "check", "generate", "glossary", "audit":
 		if a.env.AnthropicAPIKey == "" {
 			return fmt.Errorf("ANTHROPIC_API_KEY ausente: defina a chave no .env (veja .env.example) e rode de novo; o comando %q não foi executado", cmd)
 		}
@@ -154,8 +159,50 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 			a.writeReport(report.Run{Command: cmd, Args: args, Started: started, Finished: time.Now(), Err: err})
 		}()
 	}
+	if cmd == "audit" {
+		return a.audit(ctx, *auditDir, *banterModel)
+	}
 	err = a.exec(ctx, cmd, *block, *segment, *last, *status)
 	return err
+}
+
+// audit roda a auditoria adversarial com o juiz real e grava o resultado em output/.
+func (a *app) audit(ctx context.Context, dir, banterModel string) error {
+	cases, err := audit.Load(dir)
+	if err != nil {
+		return err
+	}
+	sched, err := config.LoadSchedule(a.env.ConfigDir)
+	if err != nil {
+		return err
+	}
+	lex, _, err := a.pipeline().Lexicon(sched)
+	if err != nil {
+		return err
+	}
+	if banterModel == "" {
+		banterModel = a.env.JudgeBanterModel
+	}
+	judge := &check.Judge{LLM: a.metered, Model: a.env.ModelSmart, BanterModel: banterModel}
+	start := time.Now()
+	rs, err := audit.Run(ctx, cases, lex, judge, 6)
+	if err != nil {
+		slog.Warn("auditoria: falha de LLM em algum caso (contado como reprovação)", "erro", err)
+	}
+	cost, _ := a.store.CostSince(ctx, start)
+	title := fmt.Sprintf("Auditoria adversarial — juiz fact: %s · juiz banter: %s", a.env.ModelSmart, banterModel)
+	md := audit.Report(rs, title, cost["judge"])
+	fmt.Println(md)
+	_ = os.MkdirAll(a.env.OutputDir, 0o755)
+	path := fmt.Sprintf("%s/auditoria-%s.md", a.env.OutputDir, time.Now().In(a.env.Location).Format("20060102-150405"))
+	if err := os.WriteFile(path, []byte(md), 0o644); err == nil {
+		slog.Info("auditoria", "arquivo", path)
+	}
+	_, fn, fp, _ := audit.Matrix(rs)
+	if fn > 0 || fp > 2 {
+		return fmt.Errorf("auditoria fora da meta: %d falsos negativos, %d falsos positivos", fn, fp)
+	}
+	return nil
 }
 
 func (a *app) writeReport(r report.Run) {

@@ -125,11 +125,11 @@ func TestIsShortening(t *testing.T) {
 	orig := "Traduzindo pra quem tá chegando agora: a lista ficou mais enxuta. Orlando, conta o resto."
 	cases := map[string]bool{
 		"Traduzindo pra quem tá chegando agora: a lista ficou mais enxuta.": true,
-		"Orlando, conta o resto.": true,
+		"Orlando, conta o resto.":                      true,
 		"Traduzindo: a lista ficou muito mais enxuta.": false, // palavra nova
-		"Orlando, o resto conta.": false,                      // ordem trocada
-		orig: false,                                           // não encurtou
-		"":   false,
+		"Orlando, o resto conta.":                      false, // ordem trocada
+		orig:                                           false, // não encurtou
+		"":                                             false,
 	}
 	for short, want := range cases {
 		if got := IsShortening(orig, short); got != want {

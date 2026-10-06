@@ -1,0 +1,106 @@
+# 15 números errados
+- id: N01
+  why: arredondamento indevido (5,2079 → 5,20; o correto é 5,21)
+  type: fact
+  line: "O dólar comercial fechou em R$ 5,20, segundo o Banco Central."
+  facts: [{id: 1, kind: market, claim: "O dólar comercial (venda) ficou em R$ 5,2079 em 02/10/2026, segundo o Banco Central.", value: 5.2079, unit: BRL, entities: [{name: Banco Central, type: org}]}]
+  fact_ids: [1]
+  expect: reject
+- id: N02
+  why: moeda trocada (R$ → US$)
+  type: fact
+  line: "O dólar comercial fechou em US$ 5,21, segundo o Banco Central."
+  facts: [{id: 1, kind: market, claim: "O dólar comercial (venda) ficou em R$ 5,2079 em 02/10/2026, segundo o Banco Central.", value: 5.2079, unit: BRL, entities: [{name: Banco Central, type: org}]}]
+  fact_ids: [1]
+  expect: reject
+- id: N03
+  why: moeda trocada (US$ → R$)
+  type: fact
+  line: "As exportações de café de Monte Verde somaram R$ 1,2 bilhão no terceiro trimestre."
+  facts: [{id: 2, kind: headline, claim: "A exportação de café do estado de Monte Verde somou US$ 1,2 bilhão no terceiro trimestre.", value: 1200000000, unit: USD, entities: [{name: Monte Verde, type: place}]}]
+  fact_ids: [2]
+  expect: reject
+- id: N04
+  why: porcentagem virou pontos percentuais
+  type: fact
+  line: "A taxa de desemprego em Monte Verde caiu 6,8 pontos percentuais no trimestre."
+  facts: [{id: 3, kind: headline, claim: "A taxa de desemprego em Monte Verde caiu para 6,8% no trimestre encerrado em agosto.", value: 6.8, unit: "%", entities: [{name: Monte Verde, type: place}]}]
+  fact_ids: [3]
+  expect: reject
+- id: N05
+  why: pontos percentuais viraram porcentagem
+  type: fact
+  line: "A inadimplência em Pedra Alta recuou 1,5% em setembro."
+  facts: [{id: 4, kind: headline, claim: "A inadimplência em Pedra Alta recuou 1,5 ponto percentual em setembro, segundo a associação comercial.", value: 1.5, unit: "p.p.", entities: [{name: Pedra Alta, type: place}]}]
+  fact_ids: [4]
+  expect: reject
+- id: N06
+  why: deflação apresentada como alta (sinal trocado)
+  type: fact
+  line: "O IPCA subiu 0,32% em agosto de 2026, segundo dados do Banco Central."
+  facts: [{id: 5, kind: market, claim: "O IPCA, índice oficial de inflação, variou -0,32% em agosto de 2026, segundo dados do Banco Central.", value: -0.32, unit: "%", entities: [{name: Banco Central, type: org}, {name: IPCA, type: other}]}]
+  fact_ids: [5]
+  expect: reject
+- id: N07
+  why: data trocada
+  type: fact
+  line: "O dólar comercial ficou em R$ 5,21 em 03/10/2026, segundo o Banco Central."
+  facts: [{id: 1, kind: market, claim: "O dólar comercial (venda) ficou em R$ 5,2079 em 02/10/2026, segundo o Banco Central.", value: 5.2079, unit: BRL, entities: [{name: Banco Central, type: org}]}]
+  fact_ids: [1]
+  expect: reject
+- id: N08
+  why: dia da semana e dia trocados
+  type: fact
+  line: "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no sábado (3)."
+  facts: [{id: 6, kind: headline, claim: "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no domingo (4).", entities: [{name: Unidos da Serra, type: org}, {name: Atlético Lagoa, type: org}]}]
+  fact_ids: [6]
+  expect: reject
+- id: N09
+  why: escala trocada (bilhão → milhão)
+  type: fact
+  line: "A exportação de café de Monte Verde somou US$ 1,2 milhão no terceiro trimestre."
+  facts: [{id: 2, kind: headline, claim: "A exportação de café do estado de Monte Verde somou US$ 1,2 bilhão no terceiro trimestre.", value: 1200000000, unit: USD, entities: [{name: Monte Verde, type: place}]}]
+  fact_ids: [2]
+  expect: reject
+- id: N10
+  why: ordem de grandeza (2,5 mil → 25 mil)
+  type: fact
+  line: "A Companhia Estrela do Sul vai contratar 25 mil trabalhadores para a safra."
+  facts: [{id: 7, kind: headline, claim: "A Companhia Estrela do Sul anunciou a contratação de 2,5 mil trabalhadores para a safra de 2026.", value: 2500, unit: trabalhadores, entities: [{name: Companhia Estrela do Sul, type: org}]}]
+  fact_ids: [7]
+  expect: reject
+- id: N11
+  why: temperatura arredondada para cima indevidamente (27,4 → 28)
+  type: fact
+  line: "Em Vila Serena, a máxima hoje é de 28 graus."
+  facts: [{id: 8, kind: weather, claim: "Previsão para 06/10/2026 em Vila Serena (VS): máxima de 27,4 °C, mínima de 18 °C e 40% de chance de chuva, segundo o Open-Meteo.", value: 27.4, unit: "°C", entities: [{name: Vila Serena, type: place}, {name: Open-Meteo, type: org}]}]
+  fact_ids: [8]
+  expect: reject
+- id: N12
+  why: período trocado (ao ano → ao mês)
+  type: fact
+  line: "A meta da taxa Selic está em 13,75% ao mês, segundo o Banco Central."
+  facts: [{id: 9, kind: market, claim: "A meta da taxa Selic, definida pelo Copom, está em 13,75% ao ano, segundo o Banco Central (dado de 06/10/2026).", value: 13.75, unit: "% a.a.", entities: [{name: Banco Central, type: org}, {name: Selic, type: other}, {name: Copom, type: org}]}]
+  fact_ids: [9]
+  expect: reject
+- id: N13
+  why: horário trocado
+  type: fact
+  line: "A Goiânia Mostra Curtas começa nesta terça-feira, às 21h, no Teatro Goiânia."
+  facts: [{id: 10, kind: headline, claim: "A 24ª Goiânia Mostra Curtas começa nesta terça-feira (6), às 20h, no Teatro Goiânia.", entities: [{name: Goiânia Mostra Curtas, type: other}, {name: Teatro Goiânia, type: place}]}]
+  fact_ids: [10]
+  expect: reject
+- id: N14
+  why: número aproximado inventado ("quase R$ 50 milhões" para R$ 48,6 milhões)
+  type: fact
+  line: "A ponte de Vila Serena custou quase R$ 50 milhões."
+  facts: [{id: 11, kind: headline, claim: "A ponte sobre o rio Claro custou R$ 48,6 milhões, segundo a prefeitura de Vila Serena.", value: 48600000, unit: BRL, entities: [{name: rio Claro, type: place}, {name: Vila Serena, type: place}]}]
+  fact_ids: [11]
+  expect: reject
+- id: N15
+  why: quantidade por extenso trocada (três → quatro)
+  type: fact
+  line: "Representantes de quatro setores relataram dificuldade para agendar reuniões no ministério."
+  facts: [{id: 12, kind: headline, claim: "Representantes de três setores da indústria relataram dificuldade para agendar reuniões no Ministério da Fazenda.", entities: [{name: Ministério da Fazenda, type: org}]}]
+  fact_ids: [12]
+  expect: reject

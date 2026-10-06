@@ -14,22 +14,23 @@ import (
 
 // Env reúne as variáveis de ambiente do processo.
 type Env struct {
-	DatabaseURL     string
-	AnthropicAPIKey string
-	ModelFast       string
-	ModelSmart      string
-	Prices          map[string]Price // por modelo
-	MaxDailyUSD     float64
-	Generate        bool
-	IngestInterval  time.Duration
-	ConfigDir       string
-	Location        *time.Location
-	MemoryHalfLife  float64 // dias
-	UserAgent       string
-	OutputDir       string
-	ReplayWhenIdle  bool          // REPLAY_WHEN_IDLE
-	Viewers         int           // VIEWERS (no Sprint 3 vira a contagem real)
-	ReplayWindow    time.Duration // REPLAY_WINDOW
+	DatabaseURL      string
+	AnthropicAPIKey  string
+	ModelFast        string
+	ModelSmart       string
+	JudgeBanterModel string           // JUDGE_BANTER_MODEL (padrão: MODEL_SMART)
+	Prices           map[string]Price // por modelo
+	MaxDailyUSD      float64
+	Generate         bool
+	IngestInterval   time.Duration
+	ConfigDir        string
+	Location         *time.Location
+	MemoryHalfLife   float64 // dias
+	UserAgent        string
+	OutputDir        string
+	ReplayWhenIdle   bool          // REPLAY_WHEN_IDLE
+	Viewers          int           // VIEWERS (no Sprint 3 vira a contagem real)
+	ReplayWindow     time.Duration // REPLAY_WINDOW
 }
 
 // Price em dólares por milhão de tokens.
@@ -45,6 +46,7 @@ func LoadEnv() (Env, error) {
 	e.AnthropicAPIKey = os.Getenv("ANTHROPIC_API_KEY")
 	e.ModelFast = get("MODEL_FAST", "claude-haiku-4-5-20251001")
 	e.ModelSmart = get("MODEL_SMART", "claude-sonnet-5-5")
+	e.JudgeBanterModel = get("JUDGE_BANTER_MODEL", e.ModelFast)
 	fast := Price{}
 	smart := Price{}
 	if fast.InputPerMTok, err = getFloat("PRICE_FAST_INPUT_PER_MTOK", 1.00); err != nil {

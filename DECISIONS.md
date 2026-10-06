@@ -329,3 +329,42 @@ recente) em 05/10/2026:
   intervalo e a terceira por `ultimos/20`. Se todas falharem, o último valor válido
   (dentro das 24 h) continua no ar e o evento `bcb_stale` aparece nos Avisos. Sem
   valor válido, a falha vira `source_failed`.
+
+# Sprint 2: voz e linha do tempo
+
+## Parte A: auditoria adversarial do checador (06/10/2026)
+
+`testdata/adversarial/` tem 60 casos (15 números, 10 entidades, 10 inferências,
+10 banters com afirmação disfarçada, 5 banters que zombam, 10 corretas). `make
+audit` roda o estágio determinístico e o **juiz real** em cada caso. Juiz
+indisponível conta como reprovação (fail closed).
+
+**Ajustes feitos por causa da auditoria:**
+- Unidade passou a contar no estágio determinístico: R$ × US$ × € e % × pontos
+  percentuais precisam bater (`brnum.Compatible`). Número sem unidade continua
+  compatível com qualquer uma. "Pontos percentuais" ganhou um `Kind` próprio.
+- Prompt do juiz (modo fact): paráfrase sem informação nova ("segue em" para valor
+  vigente; definição do glossário em palavras do dia a dia) é permitida. Qualquer
+  detalhe que mude ou acrescente fato (quem, quanto, quando, onde, sinal, unidade,
+  período, cargo, causa, "recorde", "primeira vez") reprova.
+
+**Matriz final** (juiz fact: `claude-sonnet-5-5`; juiz banter: `claude-haiku-4-5-20251001`):
+
+| | reprovado | aprovado |
+|---|---|---|
+| deveria reprovar (50) | 50 | **0 (FN)** |
+| deveria passar (10) | **1 (FP)** | 9 |
+
+Reprovações corretas: 21 no estágio determinístico e 29 no juiz. Foram 5 rodadas
+(3 com Sonnet nos dois modos, 2 com Haiku no banter): **0 FN em todas**. O FP foi 2
+na primeira rodada, antes do ajuste do prompt, e 1 nas quatro seguintes.
+O FP restante é o C03 ("amplitude térmica é a diferença entre a maior e a menor
+temperatura **do dia**"): o juiz reprova "do dia" porque a definição oficial é
+genérica. É discutível e fica dentro da meta (≤ 2).
+
+**Juiz de banter no `MODEL_FAST`:** com Haiku no modo banter, a auditoria manteve
+0 FN e 1 FP (duas rodadas), acertando os 15 banters (10 afirmações disfarçadas e 5
+zombarias). Custo médio por chamada: US$ 0,00105 (Haiku) contra US$ 0,00182
+(Sonnet), 42% a menos. Banter é cerca de 45% das falas, então o juiz fica ~19%
+mais barato e o segmento ~8% mais barato. **Adotado:** `JUDGE_BANTER_MODEL`
+tem como padrão `MODEL_FAST`. O modo fact continua no `MODEL_SMART`.

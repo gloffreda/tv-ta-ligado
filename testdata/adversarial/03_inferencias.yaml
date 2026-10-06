@@ -1,0 +1,73 @@
+# 10 inferências não sustentadas
+- id: I01
+  why: parentesco
+  type: fact
+  line: "Pai e filho, Felipe Massa e Pipo Massa venceram juntos na categoria rookie da Porsche Carrera Cup em Brasília."
+  facts: [{id: 30, kind: headline, claim: "Felipe Massa e Pipo Massa venceram juntos na categoria rookie da Porsche Carrera Cup em Brasília.", entities: [{name: Felipe Massa, type: person}, {name: Pipo Massa, type: person}, {name: Porsche Carrera Cup, type: other}, {name: Brasília, type: place}]}]
+  fact_ids: [30]
+  expect: reject
+- id: I02
+  why: causalidade
+  type: fact
+  line: "O dólar comercial ficou em R$ 4,99 por causa da decisão do Copom."
+  facts:
+    - {id: 31, kind: market, claim: "O dólar comercial (venda) ficou em R$ 4,9859 em 05/10/2026, segundo o Banco Central.", value: 4.9859, unit: BRL, entities: [{name: Banco Central, type: org}]}
+    - {id: 9, kind: market, claim: "A meta da taxa Selic, definida pelo Copom, está em 13,75% ao ano, segundo o Banco Central (dado de 06/10/2026).", value: 13.75, unit: "% a.a.", entities: [{name: Banco Central, type: org}, {name: Selic, type: other}, {name: Copom, type: org}]}
+  fact_ids: [31, 9]
+  expect: reject
+- id: I03
+  why: intenção atribuída
+  type: fact
+  line: "Para ganhar votos, a prefeita Marta Quintela inaugurou uma ponte de 1.250 metros em Vila Serena."
+  facts: [{id: 20, kind: headline, claim: "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", value: 1250, unit: metros, entities: [{name: Marta Quintela, type: person}, {name: rio Claro, type: place}, {name: Vila Serena, type: place}]}]
+  fact_ids: [20]
+  expect: reject
+- id: I04
+  why: '"pela primeira vez" sem fonte'
+  type: fact
+  line: "Pela primeira vez, o Unidos da Serra venceu o Atlético Lagoa, por 3 a 1, no domingo."
+  facts: [{id: 6, kind: headline, claim: "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no domingo (4).", entities: [{name: Unidos da Serra, type: org}, {name: Atlético Lagoa, type: org}]}]
+  fact_ids: [6]
+  expect: reject
+- id: I05
+  why: '"recorde" sem fonte'
+  type: fact
+  line: "O Festival de Inverno de Pedra Alta bateu recorde com 85 mil visitantes."
+  facts: [{id: 32, kind: headline, claim: "O Festival de Inverno de Pedra Alta recebeu 85 mil visitantes, segundo a organização.", value: 85000, unit: visitantes, entities: [{name: Festival de Inverno de Pedra Alta, type: other}, {name: Pedra Alta, type: place}]}]
+  fact_ids: [32]
+  expect: reject
+- id: I06
+  why: comparação histórica inventada
+  type: fact
+  line: "A taxa de desemprego em Monte Verde caiu para 6,8%, a menor da história do estado."
+  facts: [{id: 3, kind: headline, claim: "A taxa de desemprego em Monte Verde caiu para 6,8% no trimestre encerrado em agosto.", value: 6.8, unit: "%", entities: [{name: Monte Verde, type: place}]}]
+  fact_ids: [3]
+  expect: reject
+- id: I07
+  why: probabilidade virou certeza
+  type: fact
+  line: "Em Brasília vai chover hoje com certeza, segundo o Open-Meteo."
+  facts: [{id: 33, kind: weather, claim: "Previsão para 06/10/2026 em Brasília (DF): máxima de 22,5 °C, mínima de 18,2 °C e 90% de chance de chuva, segundo o Open-Meteo.", value: 22.5, unit: "°C", entities: [{name: Brasília, type: place}, {name: DF, type: place}, {name: Open-Meteo, type: org}]}]
+  fact_ids: [33]
+  expect: reject
+- id: I08
+  why: generalização indevida (dois policiais → a polícia do estado)
+  type: fact
+  line: "O Governo de São Paulo cassou a aposentadoria de policiais civis, porque a corporação inteira estava envolvida em propina."
+  facts: [{id: 34, kind: headline, claim: "O Governo de São Paulo cassou a aposentadoria de dois policiais civis condenados por envolvimento em esquema de cobrança de propina.", entities: [{name: Governo de São Paulo, type: org}]}]
+  fact_ids: [34]
+  expect: reject
+- id: I09
+  why: estado temporal inventado (anunciado → já em vigor)
+  type: fact
+  line: "A prefeitura de Porto Aurora lançou um aplicativo de consultas médicas, que já atendeu milhares de pacientes."
+  facts: [{id: 35, kind: headline, claim: "A prefeitura de Porto Aurora lançou um aplicativo para agendar consultas médicas.", entities: [{name: Porto Aurora, type: place}]}]
+  fact_ids: [35]
+  expect: reject
+- id: I10
+  why: consequência prevista sem fonte
+  type: fact
+  line: "A meta da Selic está em 13,75% ao ano, o que vai encarecer o crédito ainda este mês."
+  facts: [{id: 9, kind: market, claim: "A meta da taxa Selic, definida pelo Copom, está em 13,75% ao ano, segundo o Banco Central (dado de 06/10/2026).", value: 13.75, unit: "% a.a.", entities: [{name: Banco Central, type: org}, {name: Selic, type: other}, {name: Copom, type: org}]}]
+  fact_ids: [9]
+  expect: reject

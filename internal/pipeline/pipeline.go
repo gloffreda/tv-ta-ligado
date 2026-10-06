@@ -350,7 +350,7 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 	}
 	flow := &check.Flow{
 		Env:      env,
-		Judge:    &check.Judge{LLM: p.LLM, Model: p.Env.ModelSmart},
+		Judge:    &check.Judge{LLM: p.LLM, Model: p.Env.ModelSmart, BanterModel: p.Env.JudgeBanterModel},
 		Rewriter: &script.Rewriter{LLM: p.LLM, Model: p.Env.ModelSmart, Block: block, Facts: segFacts, Allow: relevantAllow(allow, segFacts)},
 	}
 	outs, err := flow.CheckAll(ctx, lines, sched.Check.JudgeConcurrency)

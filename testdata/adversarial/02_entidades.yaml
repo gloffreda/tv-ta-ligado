@@ -1,0 +1,73 @@
+# 10 entidades trocadas ou inventadas
+- id: E01
+  why: pessoa trocada (outra pessoa conhecida no banco)
+  type: fact
+  line: "O ministro Caio Brandão inaugurou nesta segunda-feira uma ponte de 1.250 metros em Vila Serena."
+  facts:
+    - {id: 20, kind: headline, claim: "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", value: 1250, unit: metros, entities: [{name: Marta Quintela, type: person}, {name: rio Claro, type: place}, {name: Vila Serena, type: place}]}
+  known_entities: [{name: Caio Brandão, type: person}]
+  fact_ids: [20]
+  expect: reject
+- id: E02
+  why: cargo trocado (ministro → governador)
+  type: fact
+  line: "O governador Caio Brandão afirmou que o programa Casa Clara entregou 12 mil moradias em 2026."
+  facts: [{id: 21, kind: headline, claim: "O ministro Caio Brandão afirmou que o programa Casa Clara entregou 12 mil moradias em 2026.", value: 12000, unit: moradias, entities: [{name: Caio Brandão, type: person}, {name: Casa Clara, type: other}]}]
+  fact_ids: [21]
+  expect: reject
+- id: E03
+  why: partido trocado
+  type: fact
+  line: "O deputado Rui Falcão, do Partido Azul, apresentou o projeto da ponte."
+  facts: [{id: 22, kind: headline, claim: "O deputado Rui Falcão, do Partido Verde-Amarelo, apresentou o projeto da nova ponte de Vila Serena.", entities: [{name: Rui Falcão, type: person}, {name: Partido Verde-Amarelo, type: org}, {name: Vila Serena, type: place}]}]
+  fact_ids: [22]
+  expect: reject
+- id: E04
+  why: clube adversário trocado
+  type: fact
+  line: "O time Unidos da Serra venceu o Esporte Clube Brejo por 3 a 1 no domingo."
+  facts: [{id: 6, kind: headline, claim: "O time Unidos da Serra venceu o Atlético Lagoa por 3 a 1 no domingo (4).", entities: [{name: Unidos da Serra, type: org}, {name: Atlético Lagoa, type: org}]}]
+  fact_ids: [6]
+  expect: reject
+- id: E05
+  why: cidade trocada (nome composto)
+  type: fact
+  line: "A prefeita Marta Quintela inaugurou uma ponte de 1.250 metros em Pedra Alta."
+  facts: [{id: 20, kind: headline, claim: "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", value: 1250, unit: metros, entities: [{name: Marta Quintela, type: person}, {name: rio Claro, type: place}, {name: Vila Serena, type: place}]}]
+  fact_ids: [20]
+  expect: reject
+- id: E06
+  why: cidade trocada (uma palavra, fora do banco)
+  type: fact
+  line: "Um ladrão escalou o muro de um condomínio e furtou uma câmera de monitoramento em Uberaba."
+  facts: [{id: 23, kind: headline, claim: "Um ladrão escalou o muro de um condomínio e furtou uma câmera de monitoramento em Uberlândia.", entities: [{name: Uberlândia, type: place}]}]
+  fact_ids: [23]
+  expect: reject
+- id: E07
+  why: fonte inventada (secretário que não está no fato)
+  type: fact
+  line: "Segundo o secretário Joaquim, a ponte de Vila Serena tem 1.250 metros."
+  facts: [{id: 20, kind: headline, claim: "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", value: 1250, unit: metros, entities: [{name: Marta Quintela, type: person}, {name: rio Claro, type: place}, {name: Vila Serena, type: place}]}]
+  fact_ids: [20]
+  expect: reject
+- id: E08
+  why: cargo acumulado inventado
+  type: fact
+  line: "A prefeita e presidente do partido, Marta Quintela, inaugurou a ponte de Vila Serena."
+  facts: [{id: 20, kind: headline, claim: "A prefeita Marta Quintela inaugurou nesta segunda-feira (5) uma ponte de 1.250 metros sobre o rio Claro, em Vila Serena.", value: 1250, unit: metros, entities: [{name: Marta Quintela, type: person}, {name: rio Claro, type: place}, {name: Vila Serena, type: place}]}]
+  fact_ids: [20]
+  expect: reject
+- id: E09
+  why: órgão trocado (Banco Central → IBGE, sigla da allowlist)
+  type: fact
+  line: "O IPCA variou -0,32% em agosto de 2026, segundo o IBGE."
+  facts: [{id: 5, kind: market, claim: "O IPCA, índice oficial de inflação, variou -0,32% em agosto de 2026, segundo dados do Banco Central.", value: -0.32, unit: "%", entities: [{name: Banco Central, type: org}, {name: IPCA, type: other}]}]
+  fact_ids: [5]
+  expect: reject
+- id: E10
+  why: papéis invertidos (vítima vira agressor)
+  type: fact
+  line: "Bruno Teixeira foi preso por agredir Hélio Prado em Vila Serena."
+  facts: [{id: 24, kind: headline, claim: "Hélio Prado foi preso por agredir Bruno Teixeira em Vila Serena, segundo a Polícia Civil.", entities: [{name: Hélio Prado, type: person}, {name: Bruno Teixeira, type: person}, {name: Vila Serena, type: place}, {name: Polícia Civil, type: org}]}]
+  fact_ids: [24]
+  expect: reject

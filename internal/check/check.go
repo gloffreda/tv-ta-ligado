@@ -193,7 +193,7 @@ func NumberSupported(n brnum.Number, refs []facts.Fact, loc *time.Location) bool
 				return true
 			}
 		default:
-			if f.Value != nil && n.Matches(*f.Value) {
+			if f.Value != nil && n.Matches(*f.Value) && brnum.Compatible(n.Kind, brnum.UnitKind(f.Unit)) {
 				return true
 			}
 			isInt := n.Scale == 1 && n.Decimals == 0
@@ -208,7 +208,7 @@ func NumberSupported(n brnum.Number, refs []facts.Fact, loc *time.Location) bool
 					}
 					continue
 				}
-				if p.HasValue && n.Matches(p.Value) {
+				if p.HasValue && n.Matches(p.Value) && brnum.Compatible(n.Kind, p.Kind) {
 					return true
 				}
 			}
@@ -257,6 +257,8 @@ Você recebe UMA fala do tipo "fact" e o texto dos fatos que a sustentam.
 - entailed=true somente se TODA afirmação factual da fala estiver sustentada pelos fatos (paráfrase é permitida; arredondamento correto é permitido; definições de glossário valem como fato).
 - Causas, consequências, previsões, comparações, contexto, adjetivos que impliquem fatos novos, ou qualquer detalhe ausente dos fatos tornam entailed=false. Liste esses trechos em "unsupported".
 - Saudações e conectivos ("Boa noite.", "Outra notícia:") não são afirmações factuais.
+- Paráfrase sem informação nova é permitida: "segue em", "continua em" ou "está em" para um valor vigente; explicar uma definição do glossário com palavras do dia a dia, sem acrescentar fato verificável.
+- Mas qualquer detalhe que mude ou acrescente fato (quem, quanto, quando, onde, sinal, unidade, período, cargo, causa, "recorde", "primeira vez") reprova.
 - real_person_mocked=true se a fala ridiculariza, zomba ou faz piada com uma pessoa real ou com um grupo real de pessoas.
 
 Responda apenas com JSON: {"entailed": true|false, "unsupported": ["trecho", ...], "real_person_mocked": true|false}`
@@ -272,8 +274,9 @@ PROIBIDO:
 Responda apenas com JSON: {"new_factual_claim": true|false, "claim": "o trecho da afirmação nova, ou vazio", "real_person_mocked": true|false}`
 
 type Judge struct {
-	LLM   llm.Client
-	Model string
+	LLM         llm.Client
+	Model       string
+	BanterModel string // modelo do modo banter; vazio = Model
 }
 
 // Evaluate escolhe o modo pelo tipo da fala. refs: fatos citados (fact) ou
@@ -293,8 +296,12 @@ func (j *Judge) Evaluate(ctx context.Context, l Line, refs []facts.Fact) (JudgeR
 	for _, f := range refs {
 		fmt.Fprintf(&b, "- [%d] %s (fonte: %s)\n", f.ID, f.Claim, f.SourceName)
 	}
+	model := j.Model
+	if l.Type == TypeBanter && j.BanterModel != "" {
+		model = j.BanterModel
+	}
 	resp, err := j.LLM.Complete(ctx, llm.Request{
-		Purpose: "judge", Model: j.Model, System: system, Prompt: b.String(),
+		Purpose: "judge", Model: model, System: system, Prompt: b.String(),
 		MaxTokens: 4000, Temperature: llm.Float(0), Effort: "low",
 	})
 	if err != nil {

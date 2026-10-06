@@ -17,6 +17,7 @@ type Kind string
 const (
 	Plain   Kind = "plain"
 	Percent Kind = "percent"
+	Points  Kind = "pp" // pontos percentuais
 	BRL     Kind = "brl"
 	USD     Kind = "usd"
 	EUR     Kind = "eur"
@@ -208,7 +209,9 @@ func Extract(text string) []Number {
 		if m[10] >= 0 {
 			suf := textutil.Fold(strings.TrimSpace(text[m[10]:m[11]]))
 			switch {
-			case strings.HasPrefix(suf, "%"), strings.HasPrefix(suf, "por"), strings.HasPrefix(suf, "ponto"), strings.HasPrefix(suf, "p.p"):
+			case strings.HasPrefix(suf, "ponto"), strings.HasPrefix(suf, "p.p"):
+				n.Kind = Points
+			case strings.HasPrefix(suf, "%"), strings.HasPrefix(suf, "por"):
 				n.Kind = Percent
 			case suf == "reais":
 				n.Kind = BRL
@@ -295,4 +298,37 @@ func (n Number) Matches(v float64) bool {
 	}
 	c := math.Abs(v) / n.Scale
 	return math.Abs(RoundHalfUp(c, n.Decimals)-n.Mantissa) < 1e-7
+}
+
+// UnitKind traduz a unidade de um fato (facts.unit) para um Kind; Plain se desconhecida.
+func UnitKind(unit string) Kind {
+	u := strings.ToLower(strings.TrimSpace(unit))
+	switch {
+	case u == "brl" || u == "r$" || u == "reais":
+		return BRL
+	case u == "usd" || u == "us$" || u == "dólares" || u == "dolares":
+		return USD
+	case u == "eur" || u == "€" || u == "euros":
+		return EUR
+	case u == "p.p." || u == "pp" || strings.HasPrefix(u, "ponto"):
+		return Points
+	case strings.HasPrefix(u, "%"):
+		return Percent
+	}
+	return Plain
+}
+
+// Compatible: a unidade escrita na fala não contradiz a do fato. Número sem
+// unidade (ou por extenso) é compatível com qualquer uma; R$ × US$ e
+// % × pontos percentuais, não.
+func Compatible(line, fact Kind) bool {
+	switch line {
+	case Plain, Word:
+		return true
+	case BRL, USD, EUR:
+		return fact == line || fact == Plain
+	case Percent, Points:
+		return fact == line
+	}
+	return true
 }
