@@ -35,10 +35,10 @@ var memorySchema = llm.MustSchema("memory.json", `{
   }
 }`)
 
-const memorySystem = `Você mantém a memória de dois avatares de um telejornal: Orlando Pimenta e Duda Faísca.
+const memorySystem = `Você mantém a memória dos avatares de um telejornal: Orlando Pimenta, Duda Faísca e Glória Garoa (a moça do tempo).
 Do roteiro aprovado, extraia até 3 memórias sobre a relação entre os avatares: rixa (feud), piada interna (joke), opinião de um sobre o outro (opinion) ou bordão recorrente (running_gag).
 NUNCA registre memórias sobre pessoas reais, números, datas ou política. Lugares e instituições conhecidas (São Paulo, Banco Central) podem aparecer como contexto. O foco é a relação entre os avatares.
-Responda apenas com JSON: {"memories":[{"persona":"orlando|duda","kind":"feud|joke|opinion|running_gag","content":"..."}]}`
+Responda apenas com JSON: {"memories":[{"persona":"orlando|duda|gloria","kind":"feud|joke|opinion|running_gag","content":"..."}]}`
 
 type Extractor struct {
 	LLM   llm.Client

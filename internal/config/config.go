@@ -36,7 +36,18 @@ type Env struct {
 	ReplayWindow     time.Duration // REPLAY_WINDOW
 	ClockOffset      time.Duration // CLOCK_OFFSET (homologação no futuro, ex.: +2h)
 	BufferMin        time.Duration // BUFFER_MIN (linha do tempo à frente)
+	// Sprint 3: modo sob demanda.
+	RunMode       string        // RUN_MODE: on_demand (padrão) | always
+	SessionMaxDur time.Duration // SESSION_MAX_MIN (60)
+	SessionMaxUSD float64       // SESSION_MAX_USD (2)
+	SessionIdle   time.Duration // SESSION_IDLE_MIN (5): sem espectador, desliga
+	PublicMode    string        // PUBLIC_MODE: preview (EM TESTE) | live (AO VIVO)
+	SiteOrigin    string        // SITE_ORIGIN: https://… aceito no Origin do POST de sessão
+	AdminToken    string        // TVTL_ADMIN_TOKEN (nunca registrado em log)
 }
+
+// OnDemand: só trabalha dentro de sessão.
+func (e Env) OnDemand() bool { return e.RunMode != "always" }
 
 // Price em dólares por milhão de tokens.
 type Price struct {
@@ -108,6 +119,31 @@ func LoadEnv() (Env, error) {
 	if e.BufferMin, err = time.ParseDuration(get("BUFFER_MIN", "10m")); err != nil {
 		return e, fmt.Errorf("BUFFER_MIN: %w", err)
 	}
+	switch e.RunMode = strings.ToLower(get("RUN_MODE", "on_demand")); e.RunMode {
+	case "on_demand", "always":
+	default:
+		return e, fmt.Errorf("RUN_MODE deve ser on_demand|always")
+	}
+	mins, err := getFloat("SESSION_MAX_MIN", 60)
+	if err != nil {
+		return e, err
+	}
+	e.SessionMaxDur = time.Duration(mins * float64(time.Minute))
+	if e.SessionMaxUSD, err = getFloat("SESSION_MAX_USD", 2); err != nil {
+		return e, err
+	}
+	idle, err := getFloat("SESSION_IDLE_MIN", 5)
+	if err != nil {
+		return e, err
+	}
+	e.SessionIdle = time.Duration(idle * float64(time.Minute))
+	switch e.PublicMode = strings.ToLower(get("PUBLIC_MODE", "preview")); e.PublicMode {
+	case "preview", "live":
+	default:
+		return e, fmt.Errorf("PUBLIC_MODE deve ser preview|live")
+	}
+	e.SiteOrigin = strings.TrimRight(os.Getenv("SITE_ORIGIN"), "/")
+	e.AdminToken = strings.TrimSpace(os.Getenv("TVTL_ADMIN_TOKEN"))
 	e.UserAgent = get("HTTP_USER_AGENT", "tvtl/0.1 (+https://github.com/gloffreda/tv-ta-ligado)")
 	return e, nil
 }
@@ -187,6 +223,99 @@ type Schedule struct {
 	Segment    SegmentRules `yaml:"segment"`
 	Check      CheckRules   `yaml:"check"`
 	Blocks     []Block      `yaml:"blocks"`
+	Programs   Programs     `yaml:"programs"`
+}
+
+// Programs: a grade mostrada no guia de TV (horário de Brasília).
+type Programs struct {
+	Weekdays []Program      `yaml:"weekdays" json:"weekdays"`
+	Weekend  []Program      `yaml:"weekend" json:"weekend"`
+	Weather  WeatherInserts `yaml:"weather" json:"weather"`
+	Plantao  Program        `yaml:"plantao" json:"plantao"`
+}
+
+type Program struct {
+	Start string   `yaml:"start" json:"start"` // "06:00"
+	End   string   `yaml:"end" json:"end"`     // "09:00" ("24:00" = meia-noite)
+	Name  string   `yaml:"name" json:"name"`
+	Scene string   `yaml:"scene" json:"scene"`
+	Cast  []string `yaml:"cast" json:"cast"`
+	About string   `yaml:"about,omitempty" json:"about,omitempty"`
+}
+
+type WeatherInserts struct {
+	Name    string   `yaml:"name" json:"name"`
+	At      []string `yaml:"at" json:"at"`
+	Minutes int      `yaml:"minutes" json:"minutes"`
+	Scene   string   `yaml:"scene" json:"scene"`
+	Cast    []string `yaml:"cast" json:"cast"`
+	Block   string   `yaml:"block" json:"block"`
+}
+
+// Slot: um programa num horário concreto.
+type Slot struct {
+	Program
+	StartsAt time.Time `json:"starts_at"`
+	EndsAt   time.Time `json:"ends_at"`
+	Kind     string    `json:"kind"` // program | weather
+}
+
+func hm(s string) (int, error) {
+	var h, m int
+	if _, err := fmt.Sscanf(s, "%d:%d", &h, &m); err != nil || h < 0 || h > 24 || m < 0 || m > 59 {
+		return 0, fmt.Errorf("horário inválido %q", s)
+	}
+	return h*60 + m, nil
+}
+
+// Day devolve a grade do dia (no fuso loc) com os horários do tempo por cima.
+func (p Programs) Day(day time.Time, loc *time.Location) ([]Slot, []Slot) {
+	d := day.In(loc)
+	mid := time.Date(d.Year(), d.Month(), d.Day(), 0, 0, 0, 0, loc)
+	list := p.Weekdays
+	if wd := mid.Weekday(); (wd == time.Saturday || wd == time.Sunday) && len(p.Weekend) > 0 {
+		list = p.Weekend
+	}
+	at := func(min int) time.Time { return mid.Add(time.Duration(min) * time.Minute) }
+	var progs []Slot
+	for _, pr := range list {
+		a, err1 := hm(pr.Start)
+		b, err2 := hm(pr.End)
+		if err1 != nil || err2 != nil || b <= a {
+			continue
+		}
+		progs = append(progs, Slot{Program: pr, StartsAt: at(a), EndsAt: at(b), Kind: "program"})
+	}
+	var weather []Slot
+	for _, t := range p.Weather.At {
+		a, err := hm(t)
+		if err != nil {
+			continue
+		}
+		mins := p.Weather.Minutes
+		if mins <= 0 {
+			mins = 10
+		}
+		weather = append(weather, Slot{Program: Program{Start: t, Name: p.Weather.Name, Scene: p.Weather.Scene, Cast: p.Weather.Cast},
+			StartsAt: at(a), EndsAt: at(a + mins), Kind: "weather"})
+	}
+	return progs, weather
+}
+
+// At: o programa no ar em t (o tempo da Glória tem precedência).
+func (p Programs) At(t time.Time, loc *time.Location) (Slot, bool) {
+	progs, weather := p.Day(t, loc)
+	for _, w := range weather {
+		if !t.Before(w.StartsAt) && t.Before(w.EndsAt) {
+			return w, true
+		}
+	}
+	for _, pr := range progs {
+		if !t.Before(pr.StartsAt) && t.Before(pr.EndsAt) {
+			return pr, true
+		}
+	}
+	return Slot{}, false
 }
 
 // TimelineCfg: pausas e reprise da linha do tempo.

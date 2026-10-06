@@ -94,7 +94,7 @@ func (a *app) voicer(ctx context.Context) (*voice.Voicer, error) {
 	}
 	router := &tts.Router{Providers: ps, Fallback: strings.Split(envOr("TTS_FALLBACK", "kokoro,piper"), ","),
 		OnEvent: func(kind string, d map[string]any) { _ = a.store.Event(context.WithoutCancel(ctx), kind, d) }}
-	return &voice.Voicer{Store: a.store, Router: router, Proc: audio.FFmpeg{}, MediaDir: media, Dict: dict, Ledger: a.store, Budget: a.metered,
+	return &voice.Voicer{Store: a.store, Router: router, Proc: audio.FFmpeg{}, MediaDir: media, Dict: dict, Ledger: a.store, Budget: a.metered, Gate: a.gate, Now: a.now,
 		Lip: &lipsync.Client{URL: envOr("LIPSYNC_URL", "http://lipsync:8080"), HTTP: &http.Client{Timeout: 3 * time.Minute}}}, nil
 }
 

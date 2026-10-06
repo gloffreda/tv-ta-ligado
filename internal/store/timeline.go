@@ -23,8 +23,9 @@ type TimelineLine struct {
 }
 
 type Source struct {
-	Name string `json:"name"`
-	URL  string `json:"url"`
+	Name  string `json:"name"`
+	URL   string `json:"url"`
+	Title string `json:"title,omitempty"` // título da matéria (fatos de notícia)
 }
 
 type TimelineItem struct {
@@ -224,13 +225,14 @@ func (s *Store) timelineLines(ctx context.Context, itemID int64) ([]TimelineLine
 		if out[i].Type != "fact" || out[i].LineID == nil {
 			continue
 		}
-		srows, err := s.DB.Query(ctx, `SELECT DISTINCT f.source_name, f.source_url FROM line_claims lc JOIN facts f ON f.id=lc.fact_id WHERE lc.line_id=$1 ORDER BY 1, 2`, *out[i].LineID)
+		srows, err := s.DB.Query(ctx, `SELECT DISTINCT f.source_name, f.source_url, COALESCE(a.title, '') FROM line_claims lc JOIN facts f ON f.id=lc.fact_id
+			LEFT JOIN articles a ON a.id=f.article_id WHERE lc.line_id=$1 ORDER BY 1, 2`, *out[i].LineID)
 		if err != nil {
 			return nil, err
 		}
 		for srows.Next() {
 			var src Source
-			if err := srows.Scan(&src.Name, &src.URL); err != nil {
+			if err := srows.Scan(&src.Name, &src.URL, &src.Title); err != nil {
 				srows.Close()
 				return nil, err
 			}

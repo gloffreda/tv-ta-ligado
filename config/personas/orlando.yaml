@@ -29,5 +29,5 @@ fallback_voices:
   kokoro: {provider: kokoro, name: pm_alex, rate: 0.92, pitch: -1}
 
 rigs:
-  pixel: {sprite: orlando, seat: left, palette: {suit: "#2C4740", tie: "#E5533D"}}
-  vector: {sprite: orlando, seat: left, palette: {suit: "#2C4740", tie: "#E5533D"}}
+  pixel: {sprite: orlando, seat: left, palette: {hair: "#C9C6BE", skin: "#D9A27A", suit: "#22324F", tie: "#C0392B", shirt: "#F3EEDF"}}
+  vector: {sprite: orlando, seat: left, palette: {hair: "#C9C6BE", skin: "#D9A27A", suit: "#22324F", tie: "#C0392B", shirt: "#F3EEDF"}}

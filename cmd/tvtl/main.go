@@ -30,6 +30,7 @@ import (
 	"github.com/gloffreda/tv-ta-ligado/internal/pipeline"
 	"github.com/gloffreda/tv-ta-ligado/internal/report"
 	"github.com/gloffreda/tv-ta-ligado/internal/rundown"
+	"github.com/gloffreda/tv-ta-ligado/internal/session"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
 	"github.com/gloffreda/tv-ta-ligado/internal/timeline"
 	"github.com/gloffreda/tv-ta-ligado/internal/tts"
@@ -76,6 +77,7 @@ type app struct {
 	store   *store.Store
 	metered *llm.Metered
 	sched   *timeline.Scheduler // só no run (para o relatório)
+	gate    *session.Gate
 }
 
 func newApp(ctx context.Context) (*app, error) {
@@ -104,7 +106,14 @@ func newApp(ctx context.Context) (*app, error) {
 	if env.ClockOffset != 0 {
 		slog.Warn("CLOCK_OFFSET ativo: esta instância roda deslocada no tempo", "offset", env.ClockOffset)
 	}
-	return &app{env: env, store: st, metered: m}, nil
+	a := &app{env: env, store: st, metered: m}
+	// Trava do modo sob demanda: fora de sessão, nada de LLM, voz, ingestão ou
+	// agenda. A única exceção é o comando manual (TVTL_MANUAL=1, Makefile).
+	a.gate = &session.Gate{Store: st, OnDemand: env.OnDemand(),
+		Event: func(kind string, d map[string]any) { _ = st.Event(context.Background(), kind, d) }}
+	m.Gate = a.gate
+	slog.Info("modo", "run_mode", env.RunMode, "manual", session.Manual())
+	return a, nil
 }
 
 type missingKey struct{}
@@ -126,7 +135,7 @@ func (a *app) ingester() (*ingest.Ingester, error) {
 		return nil, err
 	}
 	return &ingest.Ingester{Store: a.store, HTTP: &http.Client{Timeout: 30 * time.Second}, Feeds: feeds,
-		UA: a.env.UserAgent, Loc: a.env.Location, MaxAge: 48 * time.Hour, Now: a.now}, nil
+		UA: a.env.UserAgent, Loc: a.env.Location, MaxAge: 48 * time.Hour, Now: a.now, Gate: a.gate}, nil
 }
 
 func dispatch(ctx context.Context, cmd string, args []string) (err error) {

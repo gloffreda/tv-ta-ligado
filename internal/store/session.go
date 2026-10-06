@@ -117,3 +117,23 @@ func (s *Store) Audience(ctx context.Context) (viewers int, updated time.Time, l
 	err = s.DB.QueryRow(ctx, `SELECT viewers, updated_at, last_seen_at FROM audience WHERE id=1`).Scan(&viewers, &updated, &lastSeen)
 	return
 }
+
+// ---- tarefas periódicas ----
+
+// JobDue: a tarefa nunca rodou ou rodou há mais de every.
+func (s *Store) JobDue(ctx context.Context, name string, every time.Duration, now time.Time) (bool, error) {
+	var last time.Time
+	err := s.DB.QueryRow(ctx, `SELECT last_run FROM jobs WHERE name=$1`, name).Scan(&last)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return now.Sub(last) >= every, nil
+}
+
+func (s *Store) JobDone(ctx context.Context, name string, now time.Time) error {
+	_, err := s.DB.Exec(ctx, `INSERT INTO jobs(name, last_run) VALUES ($1,$2) ON CONFLICT (name) DO UPDATE SET last_run=$2`, name, now)
+	return err
+}

@@ -9,8 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -78,7 +80,7 @@ func testEnv() config.Env {
 func newPipeline(st *store.Store, mock llm.Client, env config.Env, now time.Time) (*Pipeline, *llm.Metered) {
 	m := &llm.Metered{Inner: mock, Prices: env.Prices, MaxDailyUSD: env.MaxDailyUSD, Ledger: st, Loc: env.Location, Now: func() time.Time { return now }}
 	return &Pipeline{
-		Store: st, LLM: m, Budget: m, Env: env, ConfigDir: testfix.Path("config"),
+		Store: st, LLM: m, Budget: m, Env: env, ConfigDir: legacyConfig(),
 		Now: func() time.Time { return now }, CandidateWindow: 36 * time.Hour, ReuseWindow: 6 * time.Hour,
 	}, m
 }
@@ -531,4 +533,34 @@ func TestDraftThenCheck(t *testing.T) {
 	if _, err := p.CheckDraft(ctx, d.SegmentID); err == nil {
 		t.Fatal("segmento já checado não pode ser checado de novo")
 	}
+}
+
+var (
+	legacyOnce sync.Once
+	legacyDir  string
+)
+
+// legacyConfig: config/ com a previsão do tempo de volta ao bloco de notícias
+// (as gravações em testdata/llm são de antes da Glória assumir o tempo).
+func legacyConfig() string {
+	legacyOnce.Do(func() {
+		dir, err := os.MkdirTemp("", "tvtl-config-")
+		if err != nil {
+			panic(err)
+		}
+		if err := os.CopyFS(dir, os.DirFS(testfix.Path("config"))); err != nil {
+			panic(err)
+		}
+		p := filepath.Join(dir, "schedule.yaml")
+		b, err := os.ReadFile(p)
+		if err != nil {
+			panic(err)
+		}
+		s := strings.Replace(string(b), "    max_articles: 4\n", "    max_articles: 4\n    weather_fixed: [São Paulo, Rio de Janeiro, Brasília]\n    weather_rotating: 2\n", 1)
+		if err := os.WriteFile(p, []byte(s), 0o644); err != nil {
+			panic(err)
+		}
+		legacyDir = dir
+	})
+	return legacyDir
 }

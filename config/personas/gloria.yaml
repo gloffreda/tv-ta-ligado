@@ -32,5 +32,5 @@ fallback_voices:
   kokoro: {provider: kokoro, name: pf_dora, rate: 0.94, pitch: -1.5}
 
 rigs:
-  pixel: {sprite: gloria, seat: center, palette: {dress: "#E58FB0", hair: "#2A211A", jewel: "#F5C842"}}
-  vector: {sprite: gloria, seat: center, palette: {dress: "#E58FB0", hair: "#2A211A", jewel: "#F5C842"}}
+  pixel: {sprite: gloria, seat: center, palette: {hair: "#2A211A", skin: "#B57A55", dress: "#E58FB0", jewel: "#F5C842"}}
+  vector: {sprite: gloria, seat: center, palette: {hair: "#2A211A", skin: "#B57A55", dress: "#E58FB0", jewel: "#F5C842"}}

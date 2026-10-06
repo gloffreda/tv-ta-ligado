@@ -41,6 +41,8 @@ type Scheduler struct {
 	Gate     interface {
 		Allow(ctx context.Context, what string) error
 	}
+	// Prefer: blocos que furam a fila no instante (o tempo da Glória às 6h50…).
+	Prefer func(at time.Time) []string
 
 	mu        sync.Mutex
 	minBuffer time.Duration
@@ -174,6 +176,22 @@ func (s *Scheduler) next(ctx context.Context, at time.Time) (store.TimelineItem,
 		return store.TimelineItem{}, err
 	}
 	_, blackout := s.Blackout().Active(at)
+	if !blackout && s.Prefer != nil {
+		if pref := s.Prefer(at); len(pref) > 0 {
+			fresh, err := s.Store.FreshSegments(ctx, at, "data")
+			if err != nil {
+				return store.TimelineItem{}, err
+			}
+			for _, seg := range fresh {
+				for _, b := range pref {
+					// uma vez por janela: só se o bloco não foi ao ar nos últimos 15 min
+					if seg.Block == b && at.Sub(last[b]) > 15*time.Minute {
+						return s.segmentItem(ctx, "data", seg, at)
+					}
+				}
+			}
+		}
+	}
 	if !blackout {
 		for _, o := range []struct{ origin, kind string }{{"llm", "segment"}, {"data", "data"}} {
 			fresh, err := s.Store.FreshSegments(ctx, at, o.origin)

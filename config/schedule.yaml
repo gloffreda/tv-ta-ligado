@@ -38,11 +38,10 @@ blocks:
     lead: orlando
     support: duda
     max_articles: 4
-    weather_fixed: [São Paulo, Rio de Janeiro, Brasília]
-    weather_rotating: 2
     instructions: |
-      Orlando conduz e lê as notícias; Duda comenta com leveza, sem opinar sobre
-      culpa de ninguém. A previsão do tempo entra no fim do bloco.
+      Orlando conduz e lê as notícias; Duda comenta com acidez sobre a situação,
+      nunca sobre pessoas, e sem opinar sobre culpa de ninguém. A previsão do
+      tempo é da Glória, em segmento próprio: não entra aqui.
 
   - name: economia
     every: 30m
@@ -68,3 +67,56 @@ blocks:
       (a rixa pela cadeira, a "máquina", a idade do Orlando, as gírias da Duda).
       Nunca faça piada sobre pessoas reais, grupos, tragédias ou vítimas.
       Escolha notícias leves; se nenhuma for leve, brinque só com o estúdio.
+
+  # Blocos de dados (Sprint 3): modelos determinísticos, sem LLM. Cobrem o ar
+  # enquanto a estreia é escrita e enchem os intervalos.
+  - name: tempo
+    data: weather
+    every: 30m
+    lead: gloria
+    cast: [gloria]
+    scene: tempo
+
+  - name: mercado
+    data: market
+    every: 30m
+    lead: orlando
+    cast: [orlando]
+
+  - name: manchetes
+    data: headlines
+    every: 15m
+    lead: orlando
+    support: duda
+
+# Grade de programas (horário de Brasília). É o que a página mostra no guia de
+# TV; o que vai ao ar de fato é a linha do tempo. O cenário e o elenco de
+# cada programa vão para o player.
+programs:
+  weekdays:
+    - {start: "00:00", end: "06:00", name: "Madrugada Ligada", scene: estudio, cast: [orlando, duda], about: "reprises da véspera"}
+    - {start: "06:00", end: "09:00", name: "Bom Dia, Tá Ligado", scene: estudio, cast: [orlando, duda], about: "manchetes, mercado e tempo"}
+    - {start: "09:00", end: "12:00", name: "Manhã Ligada", scene: estudio, cast: [orlando, duda], about: "notícias e economia"}
+    - {start: "12:00", end: "14:00", name: "Tá Ligado Meio-Dia", scene: estudio, cast: [orlando, duda], about: "o resumo do meio-dia"}
+    - {start: "14:00", end: "18:00", name: "Tarde Ligada", scene: estudio, cast: [duda, orlando], about: "notícias e humor"}
+    - {start: "18:00", end: "21:00", name: "Jornal Tá Ligado", scene: estudio, cast: [orlando, duda], about: "o jornal da noite"}
+    - {start: "21:00", end: "24:00", name: "Tá Ligado à Noite", scene: estudio, cast: [duda, orlando], about: "humor e o fechamento do dia"}
+  weekend:
+    - {start: "00:00", end: "08:00", name: "Madrugada Ligada", scene: estudio, cast: [orlando, duda], about: "reprises"}
+    - {start: "08:00", end: "12:00", name: "Fim de Semana Ligado", scene: estudio, cast: [duda, orlando], about: "manchetes e humor"}
+    - {start: "12:00", end: "18:00", name: "Tarde de Domingo Ligada", scene: estudio, cast: [duda, orlando], about: "humor e resumo da semana"}
+    - {start: "18:00", end: "24:00", name: "Jornal Tá Ligado — Fim de Semana", scene: estudio, cast: [orlando, duda], about: "o jornal da noite"}
+  # Previsão do tempo com a Glória: entra por cima da grade nestes horários.
+  weather:
+    name: "Tempo com Glória Garoa"
+    at: ["06:50", "12:50", "18:50", "21:50"]
+    minutes: 10
+    scene: tempo
+    cast: [gloria]
+    block: tempo
+  # Plantão: aviso oficial de grande perigo (INMET) fura a fila.
+  plantao:
+    name: "Plantão Tá Ligado"
+    scene: estudio
+    cast: [orlando, gloria]
+    about: "aviso oficial de grande perigo"

@@ -62,3 +62,9 @@ CREATE TABLE persona_mood (
     rivalidade  DOUBLE PRECISION NOT NULL DEFAULT 5,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Tarefas periódicas que só rodam dentro de sessão (glossário, memória).
+CREATE TABLE jobs (
+    name     TEXT PRIMARY KEY,
+    last_run TIMESTAMPTZ NOT NULL
+);
