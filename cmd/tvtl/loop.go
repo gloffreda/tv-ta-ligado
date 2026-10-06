@@ -209,6 +209,22 @@ func (a *app) work(ctx context.Context, in *ingest.Ingester, v *voice.Voicer, sc
 		defer wg.Done()
 		a.periodic(ctx, in)
 	}()
+	// Segmentos de dados numa rotina própria: não esperam a geração com LLM
+	// (que leva minutos) para repor o estoque.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				a.dataStock(ctx, ds, v, false)
+			}
+		}
+	}()
 
 	p := a.pipeline()
 	ingestT := time.NewTicker(a.env.IngestInterval)
@@ -216,9 +232,7 @@ func (a *app) work(ctx context.Context, in *ingest.Ingester, v *voice.Voicer, sc
 	genT := time.NewTicker(time.Minute)
 	defer genT.Stop()
 	cycle := func() {
-		a.dataStock(ctx, ds, v, false)
 		a.generateDue(ctx, p, v)
-		a.dataStock(ctx, ds, v, false)
 		a.voiceBacklog(ctx, v, 2)
 	}
 	cycle()

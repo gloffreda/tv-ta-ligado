@@ -577,3 +577,95 @@ reprise e cache). Regra: quem não gera mais do que isso fica fora da audição.
   (~US$ 286/mês); horário nobre **US$ 6,35/dia** (~US$ 190/mês). Os dois passam do
   `MAX_DAILY_USD` padrão de US$ 5: com a grade atual, a geração para antes do fim
   do dia. É preciso subir o teto, espaçar a grade ou usar a reprise sem audiência.
+
+# Sprint 3: o canal no ar (06/10/2026)
+
+## Parte 0: ajustes do Sprint 2
+
+### Descarte de 17,9% na extração (investigado)
+Não era bug do validador. Nas matérias de resultado eleitoral, o LLM expandia
+siglas de UF (MA → Maranhão; MS → Mato Grosso do Sul, 4 casos) e somava
+números (DF + cinco estados → 6, 1 caso). A validação literal descartou
+corretamente: "Maranhão" e "6" não estão no texto. O prompt do extrator agora
+proíbe expandir siglas e calcular. O descarte alto foi sinal de que a trava
+funciona, não de defeito.
+
+### Checador
+- Dígito colado em letra não é número (g1, B3, G20, 5G, COP30, Poder360). Os
+  códigos foram para a allowlist (`codigos`, `veiculos`) e para o dicionário de
+  pronúncia ("gê um", "cinco gê"). A normalização de fala mascara esses códigos
+  antes de converter números e confere os números depois.
+- "Uma fala, um tipo": numa fala `fact`, a primeira frase de conteúdo (depois
+  de uma saudação curta) tem de trazer o fato (número, entidade ou duas palavras
+  de conteúdo da afirmação). Senão reprova com o pedido de separar em `banter` +
+  `fact`. O roteirista recebe a mesma regra.
+- Cargo em banter: banter que cita pessoa real pelo cargo ou função ("o técnico
+  do time", "o presidente do Banco Central") reprova no estágio determinístico.
+  Motivo: com a Duda mais ácida, o juiz de banter (Haiku) deixou passar 2 casos
+  assim na auditoria (Z03 e A03). Com a regra, 0 FN. Custo: a Duda não pode
+  ironizar um cargo nem de leve; ela tem alvos de sobra (situação, Orlando,
+  máquina, ela mesma, o canal).
+
+### Cache de prompt
+- A parte fixa (regras, personas do elenco, allowlist em ordem estável) vai no
+  `system` com `cache_control`. A allowlist era lida de um mapa (ordem aleatória
+  a cada leitura) e quebraria o cache: agora sai em ordem alfabética de categoria.
+- Juiz de fatos: TTL padrão de 5 min. As chamadas vêm em rajada (todas as falas
+  de um segmento), e o cache é lido de fato.
+- Roteiro e reescrita: medido na homologação, o cache de 5 min **só gravava e
+  nunca lia** (19.396 tokens gravados, 0 lidos em 4 roteiros), porque cada bloco
+  roda a cada 20–30 min. Gravar custa 1,25x: o cache de 5 min encarecia o
+  roteiro. Passaram para TTL de 1 h (gravação a 2x, leitura a 0,1x): com ~7
+  roteiros por hora e o mesmo `system` em todos os blocos, a conta fecha com
+  uma gravação e várias leituras.
+- O mínimo cacheável é de 4.096 tokens no Haiku 4.5: os prompts de pauta e
+  extração (Haiku) ficam abaixo e não são cacheados.
+
+### Vozes da Glória
+Kokoro tem uma só voz feminina pt-BR (`pf_dora`), que já é da Duda. Audição às
+cegas em `audition/gloria/` com `pf_dora` mais lenta e grave e quatro misturas
+de `pf_dora` com vozes femininas de outros idiomas (peso pt-BR ≥ 0,5, para a
+pronúncia continuar inteligível). Pela distância de estilo em relação à
+`pf_dora` pura, `hf_alpha` (0,209) e `if_sara` (0,174) são as mais distintas;
+o padrão até a escolha é `pf_dora*0.5+if_sara*0.5`, que ainda soa pt-BR.
+Google Cloud TTS: sem chave no `.env`, fica fora. Cota gratuita oficial
+(consultada em 06/10/2026): Standard e WaveNet 4 milhões de caracteres/mês;
+Neural2, Chirp 3 HD e Studio 1 milhão/mês. Os boletins de tempo (~600
+caracteres, 4 por dia) caberiam com folga.
+
+## Parte A: site e player
+- Duas páginas, um canal: `/` (PixiJS) e `/humano` (SVG) sobre o mesmo núcleo
+  (`web/src/core`). O seletor troca de visual sem recarregar, e por isso o som
+  continua: o navegador não deixaria religar o áudio sozinho depois de uma
+  navegação.
+- PixiJS em **Canvas 2D a 30 quadros**, não WebGL. Sem GPU, o WebGL por software
+  (SwiftShader) roubava tanta CPU que o áudio da página tocava a ~0,7x (deriva
+  de até 900 ms). Com Canvas 2D: deriva constante de ~85 ms, zero correções. A
+  cena é só retângulos e texto; Canvas 2D sobra.
+- Fontes servidas como arquivo (Vite com `assetsInlineLimit: 0`): a CSP não
+  aceita `data:` em `font-src`.
+- O túnel rápido (`*.trycloudflare.com`) **não entrega SSE em tempo real**: a
+  origem escreve, o cliente não recebe. O player não depende do SSE: segue o
+  relógio, relê a sessão a cada 5 s e a linha do tempo a cada 15 s. O SSE
+  continua servindo para contar a audiência (a conexão chega à origem) e
+  funciona normalmente num túnel nomeado.
+- O token de administração nunca é guardado: some do formulário assim que o
+  pedido sai. "Desligar" usa uma chave da sessão que fica só na memória da aba;
+  se a página foi recarregada, pede o token.
+
+## Modo sob demanda
+- `RUN_MODE=on_demand` (padrão). Uma trava única (`session.Gate`) recusa LLM,
+  voz, ingestão e agendamento sem sessão ativa (`no_active_session`, registrado
+  em `system_events` no máximo uma vez por minuto). A exceção é `TVTL_MANUAL=1`,
+  que só os alvos manuais do Makefile passam (`audit`, `audition`, `ingest`,
+  `bench`, `tvtl ARGS=…`).
+- O `tvtl run` é um supervisor: em repouso, só consulta `sessions` a cada 2 s.
+  Na partida, uma sessão ativa encontrada é **encerrada** (`restart`): reiniciar
+  nunca liga nada.
+- Ao ligar: abertura (uma fala do Orlando, 8 variações x 3 saudações, áudio em
+  cache depois da primeira vez) → linha do tempo → dados com os fatos que ainda
+  valem → ingestão → dados de novo → geração com LLM em paralelo. A vinheta é
+  "preguiçosa": no máximo 15 s de vinheta agendada à frente, para que o primeiro
+  segmento pronto entre logo, em vez de ficar atrás de 10 min de vinhetas.
+- Tarefas periódicas só dentro de sessão: glossário (a cada 24 h) e consolidação
+  da memória (no máximo a cada 7 dias), pela tabela `jobs`.

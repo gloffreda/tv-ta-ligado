@@ -189,22 +189,30 @@ func TestHeadlinesFromTitles(t *testing.T) {
 		t.Fatal(err)
 	}
 	titles := []string{
-		"Banco Central mantém a taxa Selic em 15% ao ano",          // vira manchete
-		"Carlos Mendes Ribeiro assume comando da empresa estatal",  // nome de pessoa: fora
-		"Vacina contra gripe chega aos postos de São Paulo",        // saúde: fora do brief
-		"Incêndio atinge depósito em São Paulo e deixa 3 feridos",  // sensível: vai, modo sério
+		"Banco Central mantém a taxa Selic em 15% ao ano",         // vira manchete
+		"Carlos Mendes Ribeiro assume comando da empresa estatal", // nome de pessoa: fora
+		"Vacina contra gripe chega aos postos de São Paulo",       // saúde: fora do brief
+		"Incêndio atinge depósito em São Paulo e deixa 3 feridos", // sensível: vai, modo sério
 		"Chuva forte provoca alagamentos em Belo Horizonte nesta terça",
+	}
+	src2, err := st.UpsertSource(ctx, "g1 — Brasil", "rss", "https://g1.invalid/rss", "none")
+	if err != nil {
+		t.Fatal(err)
 	}
 	pub := now.Add(-time.Hour)
 	for i, ti := range titles {
 		url := fmt.Sprintf("https://ab.invalid/%d", i)
-		if _, err := st.InsertArticle(ctx, store.Article{SourceID: src, URL: url, Title: ti, TitleHash: url, PublishedAt: &pub}); err != nil {
+		sid := src
+		if i == 4 {
+			sid = src2 // no máximo 2 manchetes por veículo
+		}
+		if _, err := st.InsertArticle(ctx, store.Article{SourceID: sid, URL: url, Title: ti, TitleHash: url, PublishedAt: &pub}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	sched, _ := config.LoadSchedule(testfix.Path("config"))
 	b := &Builder{Store: st, Lex: lexicon(t), Loc: loc, Now: func() time.Time { return now }, Rand: rand.New(rand.NewPCG(3, 4)),
-		Credits: map[string]string{"Agência Brasil — Últimas": "Agência Brasil"}, Exclude: sched.Exclude}
+		Credits: map[string]string{"Agência Brasil — Últimas": "Agência Brasil", "g1 — Brasil": "g1"}, Exclude: sched.Exclude}
 	res, err := b.Build(ctx, Headlines)
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +226,7 @@ func TestHeadlinesFromTitles(t *testing.T) {
 		all = append(all, l.Text)
 	}
 	text := strings.Join(all, "\n")
-	for _, want := range []string{"Selic em 15% ao ano", "Agência Brasil", "Belo Horizonte", "3 feridos"} {
+	for _, want := range []string{"Selic em 15% ao ano", "Agência Brasil", "Belo Horizonte", "g1", "3 feridos"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("faltou %q:\n%s", want, text)
 		}

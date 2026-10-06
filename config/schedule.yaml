@@ -15,7 +15,10 @@ timeline:
 
 # Temas fora do brief ficam fora da pauta (o MVP não tem bloco de saúde).
 exclude:
-  url_parts: [/saude/, /saude., equilibrioesaude, /bem-estar/, /vivabem/, /medicina/, /coronavirus/]
+  # resultado-das-eleicoes: páginas automáticas do g1, uma por município e
+  # seção eleitoral (milhares por turno). Literais, mas hiperlocais e repetidas:
+  # inundavam a pauta e as manchetes.
+  url_parts: [/saude/, /saude., equilibrioesaude, /bem-estar/, /vivabem/, /medicina/, /coronavirus/, resultado-das-eleicoes]
   keywords: [saúde, doença, doenças, sintoma, sintomas, câncer, vacina, vacinação, médico, médicos, hospital, hospitais, tratamento, diagnóstico, remédio, medicamento, dieta, epidemia, pandemia, vírus, infecção, dengue, gripe, covid]
 
 segment:

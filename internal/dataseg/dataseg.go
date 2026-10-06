@@ -310,10 +310,12 @@ func (b *Builder) titleFacts(ctx context.Context, now time.Time, win, reuse time
 		return nil, err
 	}
 	used := map[int64]bool{}
+	perOutlet := map[string]int{} // variedade: no máximo 2 manchetes do mesmo veículo
 	for _, f := range have {
 		if f.ArticleID != nil {
 			used[*f.ArticleID] = true
 		}
+		perOutlet[f.SourceName]++
 	}
 	var out []facts.Fact
 	for _, a := range arts {
@@ -321,7 +323,7 @@ func (b *Builder) titleFacts(ctx context.Context, now time.Time, win, reuse time
 			break
 		}
 		credit := b.Credits[a.SourceName]
-		if credit == "" || used[a.ID] {
+		if credit == "" || used[a.ID] || perOutlet[credit] >= 2 {
 			continue
 		}
 		title := strings.TrimSpace(reTitleSpace.ReplaceAllString(a.Title, " "))
@@ -348,6 +350,7 @@ func (b *Builder) titleFacts(ctx context.Context, now time.Time, win, reuse time
 		}
 		f.ID = fid
 		used[a.ID] = true
+		perOutlet[credit]++
 		out = append(out, f)
 	}
 	return out, nil
@@ -367,11 +370,13 @@ func (b *Builder) headlines(ctx context.Context, now time.Time) ([]check.Line, [
 		n = 4
 	}
 	win, reuse := b.HeadlineWindow, b.HeadlineReuse
+	// Janela larga: de madrugada chegam poucas matérias (e muitas citam
+	// pessoas, que ficam de fora pelo título). Uma manchete só volta depois de 2 h.
 	if win <= 0 {
-		win = 6 * time.Hour
+		win = 12 * time.Hour
 	}
 	if reuse <= 0 {
-		reuse = 3 * time.Hour
+		reuse = 2 * time.Hour
 	}
 	hs, err := b.Store.RecentHeadlineFacts(ctx, now, win, reuse, n)
 	if err != nil {

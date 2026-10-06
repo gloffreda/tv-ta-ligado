@@ -151,3 +151,8 @@ staging-down:
 	$(STAGING) down --remove-orphans
 staging-logs:
 	$(STAGING) logs -f --tail=200 tvtl
+
+## rest-test: teste de repouso da produção (make up, reinicia tudo, 15 min sem
+## nenhuma linha nova em llm_calls e CPU média <= 2% por container)
+rest-test:
+	REST_MIN=$${REST_MIN:-15} ./scripts/rest-test.sh
