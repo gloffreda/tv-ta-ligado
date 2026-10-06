@@ -742,3 +742,20 @@ semana, `LogCapped`, `JobDue`, humor com meia-vida).
   `/home/mini/projects/novatrak/infra`). Nenhum comando deste sprint mexeu
   neles; `traefik`, `caddy`, `postgres`, `redis` e os demais seguem com o mesmo
   ID e `StartedAt`.
+
+## Adendo: senha do site e novo layout (06/10/2026)
+- **Senha em vez de token na tela.** O site inteiro fica atrás de login
+  (`SITE_GATE=on`). Só o hash vai para o `.env`, em argon2id (64 MiB, 3 passadas),
+  num formato sem `$` (o Compose interpolaria `$` ao ler o `.env`). O cookie é
+  assinado com HMAC-SHA256, com chave derivada do segredo e do hash da senha:
+  trocar a senha invalida todos os logins.
+- **Onde o portão roda.** As páginas são estáticas no nginx: `auth_request` em
+  `/v1/auth/check` e 302 para `/entrar` (com `absolute_redirect off`, para o
+  `Location` não sair `http://`: o túnel fala HTTP com o nginx). `/v1` e `/media`
+  são barrados na própria api (401), que é quem valida o cookie.
+- **Ligar a TV.** Para quem está logado, o painel tem só "Confirmar": cookie +
+  Origin do site. O token de administração ficou para a linha de comando.
+- **Layout.** O painel lateral "Fontes deste bloco" saiu. A TV ocupa a largura
+  do conteúdo (máximo de 1440 px). Abaixo dos cards, uma linha discreta: "FONTES"
+  + os veículos das falas fact do item no ar e, à direita, o aviso de IA, que
+  nunca some. A etiqueta "FONTE · veículo" dos balões continua.

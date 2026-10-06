@@ -137,12 +137,15 @@ aplicados estão em [DECISIONS.md](DECISIONS.md).
 | `REPLAY_WHEN_IDLE` | `off` | `on`: com `VIEWERS=0`, reprisa em vez de gerar |
 | `VIEWERS` | `1` | só no `RUN_MODE=always` (sob demanda, a audiência é a contagem real de SSE) |
 | `RUN_MODE` | `on_demand` | `on_demand`: só trabalha dentro de sessão; `always`: modo antigo (testes locais) |
-| `TVTL_ADMIN_TOKEN` | — | token que liga a sessão (pedido na página, junto com `LIGAR`); sem ele, ninguém liga |
+| `TVTL_ADMIN_TOKEN` | — | liga a sessão só pela linha de comando (junto com `confirm: "LIGAR"`) |
 | `TVTL_STAGING_ADMIN_TOKEN` | — | token da homologação (nunca o de produção) |
 | `SESSION_MAX_MIN` | `60` | duração máxima de uma sessão |
 | `SESSION_MAX_USD` | `2` | gasto máximo de uma sessão |
 | `SESSION_IDLE_MIN` | `5` | sem espectador por esse tempo, a sessão desliga |
 | `PUBLIC_MODE` | `preview` | selo: `preview` → EM TESTE; `live` → AO VIVO (bloqueio eleitoral → REPRISE) |
+| `SITE_GATE` | `on` | `on`: o site todo exige login; `off`: público assiste, só logado liga |
+| `SITE_PASSWORD_HASH` | — | hash argon2id da senha do site (`make set-password`) |
+| `SITE_SESSION_SECRET` / `SITE_STAGING_SESSION_SECRET` | — | assinam o cookie de login (produção / homologação) |
 | `SITE_ORIGIN` | — | domínio aceito no `Origin` do POST de sessão; vazio = o host recebido pelo nginx |
 | `CF_TUNNEL_TOKEN` | — | túnel nomeado do Cloudflare; sem ele, túnel rápido |
 | `TVTL_MANUAL` | — | `1` só nos alvos manuais do Makefile; nunca no `.env` |
@@ -208,17 +211,29 @@ Cobertura principal:
   `/v1/schedule`, `/v1/session`, `/media/<hash>.ogg` e `POST /v1/session/start|stop`.
   Todo o resto → 404. Sem CORS. 10 req/s por IP (rajada 20).
 
-### Ligar e desligar
+### Senha do site e ligar/desligar
 
-1. A página mostra **FORA DO AR** e o botão **Ligar a TV**.
-2. O painel mostra a duração máxima e o teto de gasto; digite o token e `LIGAR`.
-3. `POST /v1/session/start` exige token + `confirm: "LIGAR"` + `Origin` do próprio
-   site; qualquer outra coisa → 403, registrado em `system_events`
-   (`session_denied`). No máximo 3 tentativas por minuto por IP.
-4. **Desligar** é livre (sem confirmação; usa uma chave da sessão guardada só na
-   memória da aba). Não há renovação automática.
-5. Toda sessão fica na tabela `sessions` (início, fim, motivo, gasto, IP);
-   `GET /v1/session` mostra a última.
+- **Senha:** `make set-password` gera uma senha forte, grava no `.env` **só o hash**
+  (argon2id, `SITE_PASSWORD_HASH`), cria `SITE_SESSION_SECRET` se faltar, recria a
+  `api` e mostra a senha uma vez. `make set-password ASK=1` para digitar a sua.
+  Trocar a senha desloga todo mundo.
+- **Portão** (`SITE_GATE=on`, padrão): `/` e `/humano` sem login → 302 para
+  `/entrar`; `/v1/*` e `/media/*` → 401. Livres: `/entrar` e `/healthz`. O login
+  cria um cookie assinado (HttpOnly, Secure, SameSite=Strict, 30 dias). "Sair" fica
+  no rodapé. Login: 5 tentativas por minuto por IP; 10 falhas bloqueiam o IP por
+  15 min. Tudo vai para `system_events` (`login_ok`, `login_failed`,
+  `login_denied`), nunca a senha.
+- **`SITE_GATE=off`** (lançamento público): qualquer um assiste; o botão "Ligar a
+  TV" só aparece para quem está logado (entre por `/entrar`).
+- **Ligar:** logado, "Ligar a TV" abre o painel com a duração máxima e o teto de
+  gasto e o botão "Confirmar". São dois cliques. O servidor exige cookie válido +
+  `Origin` do próprio site (sem cookie: 401; Origin errado: 403, registrado).
+  `TVTL_ADMIN_TOKEN` + `confirm: "LIGAR"` só para linha de comando.
+- **Desligar:** livre para quem está logado, sem confirmação. Não há renovação
+  automática; a sessão também desliga sozinha nos limites (60 min, US$ 2, 5 min sem
+  espectador). Toda sessão fica em `sessions`; `GET /v1/session` mostra a última.
+- Testes de ponta a ponta com login: `export E2E_PASSWORD=...` e `make e2e-gate`
+  (`URL=` para outro endereço; nunca liga sessão) ou `make e2e` (homologação).
 
 ### Túnel nomeado com domínio próprio
 

@@ -3,7 +3,16 @@ import * as fs from "node:fs";
 import { assertStaging, BASE, bubbleLog, check404s, log, shots, tvtl, watchBubbles } from "./helpers";
 
 const MIN = Number(process.env.E2E_MIN ?? 30);
-const TOKEN = process.env.TVTL_STAGING_ADMIN_TOKEN ?? "";
+const PW = process.env.E2E_PASSWORD ?? "";
+
+// Entra no site (portão ligado) e volta para o caminho pedido.
+async function enter(p: Page, path: string) {
+  await p.goto("/entrar");
+  await p.getByLabel("Senha").fill(PW);
+  await p.getByRole("button", { name: "Entrar" }).click();
+  await p.waitForURL(/\/$/);
+  if (path !== "/") await p.goto(path);
+}
 
 type Item = { id: number; kind: string; starts_at: string; ends_at: string; lines: unknown[] | null };
 
@@ -18,18 +27,17 @@ const p95 = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math.fl
 
 test("homologação: sessão pelo botão, sincronia, balões, som, pixel x humano e 30 min no ar", async ({ page: A, browser }) => {
   assertStaging();
-  expect(TOKEN, "token da homologação").not.toBe("");
+  expect(PW, "senha do site em E2E_PASSWORD").not.toBe("");
   const summary: Record<string, unknown> = { base: BASE, minutes: MIN };
 
   // 1. Página: HTTPS, mudo, selo, 404s.
-  const resp = await A.goto("/");
-  expect(resp?.status()).toBe(200);
+  await enter(A, "/");
   expect(A.url().startsWith("https://")).toBe(true);
   await expect(A.locator("[data-badge]")).toHaveText(/EM TESTE/);
   await expect(A.locator("#btnMute")).toHaveText("Som: desligado");
   await check404s(A);
 
-  // 2. Liga a sessão pelo botão (painel na página, token + LIGAR).
+  // 2. Liga a sessão pelo botão: logado, são dois cliques (Ligar a TV → Confirmar).
   const st0 = await (await A.request.get("/v1/session")).json();
   expect(st0.active, "homologação deve começar em repouso").toBe(false);
   await shots(A, "homolog-fora-do-ar");
@@ -37,9 +45,7 @@ test("homologação: sessão pelo botão, sincronia, balões, som, pixel x human
   const dialog = A.getByRole("dialog");
   await expect(dialog).toContainText(`${st0.max_min} min`);
   await expect(dialog).toContainText("US$");
-  await expect(dialog.getByRole("button", { name: "Confirmar" })).toBeDisabled();
-  await dialog.getByLabel("Token de administração").fill(TOKEN);
-  await dialog.getByLabel("Digite LIGAR para confirmar").fill("LIGAR");
+  expect(await dialog.locator("input").count(), "sem token nem LIGAR").toBe(0);
   const tClick = Date.now();
   await dialog.getByRole("button", { name: "Confirmar" }).click();
   await expect(A.locator("[data-offair]")).toHaveCount(0, { timeout: 30000 });
@@ -53,8 +59,8 @@ test("homologação: sessão pelo botão, sincronia, balões, som, pixel x human
   const browser2 = await chromium.launch({ args: ["--use-gl=swiftshader", "--enable-unsafe-swiftshader"] });
   const B = await (await browser2.newContext({ baseURL: BASE })).newPage();
   const C = await (await browser.newContext({ baseURL: BASE })).newPage();
-  await B.goto("/");
-  await C.goto("/humano");
+  await enter(B, "/");
+  await enter(C, "/humano");
   await expect(B.locator(".bubble")).toBeVisible({ timeout: 60000 });
   await expect(C.locator("svg[data-renderer=vector]")).toBeVisible({ timeout: 30000 });
   await expect(A.locator("canvas[data-renderer=pixel]")).toBeVisible();
@@ -63,6 +69,10 @@ test("homologação: sessão pelo botão, sincronia, balões, som, pixel x human
   // 4. Capturas ao vivo (desktop 1440 e celular 390), pixel e humano.
   await shots(A, "homolog-pixel");
   await shots(C, "homolog-humano");
+
+  // Fontes do item no ar na linha abaixo dos cards (só o veículo) e o aviso de IA fixo.
+  await expect(A.getByText("Fontes deste bloco")).toHaveCount(0);
+  await expect(A.locator("[data-ai-notice]")).toBeVisible();
 
   // 5. Balões: desligar esconde, ligar mostra.
   await A.locator("#btnCap").click();

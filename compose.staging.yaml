@@ -20,6 +20,10 @@ x-env: &env
   LIPSYNC_URL: http://lipsync:8080
   # Token próprio da homologação (nunca o de produção).
   TVTL_ADMIN_TOKEN: ${TVTL_STAGING_ADMIN_TOKEN:-}
+  # Login do site: mesma senha da produção, segredo do cookie próprio.
+  SITE_GATE: ${STAGING_SITE_GATE:-on}
+  SITE_PASSWORD_HASH: ${SITE_PASSWORD_HASH:-}
+  SITE_SESSION_SECRET: ${SITE_STAGING_SESSION_SECRET:-}
   PUBLIC_MODE: preview
 
 networks:

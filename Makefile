@@ -3,7 +3,7 @@ COMPOSE := docker compose -p tvtl
 GO      := $(COMPOSE) --profile tools run --rm --no-deps gotool
 N       ?= 5
 
-.PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build audit audition bench render staging-up staging-down staging-logs url staging-url web-test e2e e2e-prod-rest tvtl rest-test
+.PHONY: e2e-gate set-password up down test migrate run logs clean show ingest tidy vet debug-up debug-down build audit audition bench render staging-up staging-down staging-logs url staging-url web-test e2e e2e-prod-rest tvtl rest-test
 
 # Comandos manuais (no terminal): a ÚNICA exceção à trava "sem sessão, sem
 # API". Só estes alvos passam TVTL_MANUAL=1. O canal em si (tvtl run) nunca.
@@ -127,6 +127,7 @@ staging-url:
 	@docker logs tvtl-staging-tunnel-1 2>&1 | grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' | tail -1 || true
 
 ## e2e: Playwright em container contra a HOMOLOGAÇÃO (liga sessão só lá).
+## Precisa da senha do site no ambiente: export E2E_PASSWORD=...
 ## Recusa rodar se o endereço for o de produção.
 E2E_MIN ?= 30
 e2e:
@@ -134,11 +135,19 @@ e2e:
 	test -n "$$url" || { echo "homologação sem endereço (make staging-up)"; exit 1; }; \
 	test "$$url" != "$$prod" || { echo "RECUSADO: o endereço é o de produção"; exit 1; }; \
 	mkdir -p out/screens out/e2e; \
-	export TVTL_STAGING_ADMIN_TOKEN=$$(grep -E '^TVTL_STAGING_ADMIN_TOKEN=' .env | cut -d= -f2-); \
 	docker run --rm --memory 3g --cpus 2 --ipc=host -v $(CURDIR)/e2e:/e2e -v $(CURDIR)/out:/out -w /e2e \
 	  -e BASE_URL=$$url -e PROD_URL=$$prod -e E2E_MIN=$(E2E_MIN) \
-	  -e TVTL_STAGING_ADMIN_TOKEN \
+	  -e E2E_PASSWORD \
 	  mcr.microsoft.com/playwright:v1.63.0-noble sh -c 'npm ci --no-audit --no-fund >/dev/null && npx playwright test $(E2E_ARGS); s=$$?; chown -R $(shell id -u):$(shell id -g) /out /e2e; exit $$s'
+
+## e2e-gate: portão do site (sem ligar sessão). URL=... (padrão: produção);
+## a senha vem de E2E_PASSWORD no seu ambiente: export E2E_PASSWORD=...; make e2e-gate
+e2e-gate:
+	@url=$${URL:-$$($(MAKE) -s url)}; test -n "$$url" || { echo "sem endereço"; exit 1; }; \
+	mkdir -p out/screens; \
+	docker run --rm --memory 2g --cpus 2 --ipc=host -v $(CURDIR)/e2e:/e2e -v $(CURDIR)/out:/out -w /e2e \
+	  -e BASE_URL=$$url -e E2E_PASSWORD \
+	  mcr.microsoft.com/playwright:v1.63.0-noble sh -c 'npm ci --no-audit --no-fund >/dev/null && npx playwright test gate; s=$$?; chown -R $(shell id -u):$(shell id -g) /out /e2e; exit $$s'
 
 ## e2e-prod-rest: produção SÓ em repouso (FORA DO AR, HTTPS, 404s). Nunca liga.
 e2e-prod-rest:
@@ -151,6 +160,10 @@ staging-down:
 	$(STAGING) down --remove-orphans
 staging-logs:
 	$(STAGING) logs -f --tail=200 tvtl
+
+## set-password: troca a senha do site (no .env só o hash); ASK=1 para digitar a sua
+set-password:
+	@./scripts/set-password.sh
 
 ## rest-test: teste de repouso da produção (make up, reinicia tudo, 15 min sem
 ## nenhuma linha nova em llm_calls e CPU média <= 2% por container)

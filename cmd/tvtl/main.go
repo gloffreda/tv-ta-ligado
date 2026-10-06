@@ -21,6 +21,7 @@ import (
 	"github.com/mmcdole/gofeed"
 
 	"github.com/gloffreda/tv-ta-ligado/internal/audit"
+	"github.com/gloffreda/tv-ta-ligado/internal/auth"
 	"github.com/gloffreda/tv-ta-ligado/internal/check"
 	"github.com/gloffreda/tv-ta-ligado/internal/config"
 	"github.com/gloffreda/tv-ta-ligado/internal/facts"
@@ -56,6 +57,7 @@ const usage = `uso: tvtl <comando> [opções]
   voice --segment ID          sintetiza as falas de um segmento aprovado
   serve [--listen :8080]      API da linha do tempo (/v1/now, /v1/timeline, /v1/events, /media)
   render --from now --minutes 15 --out out   MP3 + legendas.srt da linha do tempo
+  hash-password               lê a senha do site na entrada padrão e imprime o hash (make set-password)
   debug-proxy --listen :5432 --target postgres:5432
 `
 
@@ -169,6 +171,18 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 		return ttsBench(ctx, *providers, *seconds)
 	case "feeds-check":
 		return feedsCheck(ctx)
+	case "hash-password":
+		// lê a senha da entrada padrão (nunca de argumento) e imprime o hash argon2id
+		b, err := io.ReadAll(io.LimitReader(os.Stdin, 1024))
+		if err != nil {
+			return err
+		}
+		h, err := auth.HashPassword(strings.TrimRight(string(b), "\r\n"))
+		if err != nil {
+			return err
+		}
+		fmt.Println(h)
+		return nil
 	case "help", "-h", "--help":
 		fmt.Print(usage)
 		return nil

@@ -148,21 +148,37 @@ func (s *Server) sessionStart(w http.ResponseWriter, r *http.Request) {
 		s.deny(w, r, "start", "run_mode_always")
 		return
 	}
-	if !s.originOK(r) {
-		s.deny(w, r, "start", "origin")
-		return
-	}
 	var req startReq
 	if err := readJSON(r, &req); err != nil {
 		s.deny(w, r, "start", "body")
 		return
 	}
-	if req.Confirm != "LIGAR" {
-		s.deny(w, r, "start", "confirm")
-		return
-	}
-	if s.AdminToken == "" || !eq(req.Token, s.AdminToken) {
-		s.deny(w, r, "start", "token")
+	switch {
+	case s.logged(r):
+		// Logado no site: dois cliques na página (Ligar a TV → Confirmar). Só
+		// falta o Origin ser o do próprio site.
+		if !s.originOK(r) {
+			s.deny(w, r, "start", "origin")
+			return
+		}
+	case req.Token != "":
+		// Linha de comando: token + confirm=LIGAR + Origin do site.
+		if !s.originOK(r) {
+			s.deny(w, r, "start", "origin")
+			return
+		}
+		if req.Confirm != "LIGAR" {
+			s.deny(w, r, "start", "confirm")
+			return
+		}
+		if s.AdminToken == "" || !eq(req.Token, s.AdminToken) {
+			s.deny(w, r, "start", "token")
+			return
+		}
+	default:
+		slog.Warn("sessão: pedido sem login", "ip", ip)
+		_ = s.Store.Event(r.Context(), "session_denied", map[string]any{"action": "start", "reason": "login", "ip": ip})
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "login necessário"})
 		return
 	}
 	ses, created, err := s.Store.StartSession(r.Context(), s.now(), s.Limits.MaxDur, s.Limits.MaxUSD, ip, r.UserAgent())
@@ -216,7 +232,7 @@ func (s *Server) sessionStop(w http.ResponseWriter, r *http.Request) {
 	s.keysMu.Lock()
 	key := s.stopKeys[ses.ID]
 	s.keysMu.Unlock()
-	if !eq(req.StopKey, key) && !(s.AdminToken != "" && eq(req.Token, s.AdminToken)) {
+	if !s.logged(r) && !eq(req.StopKey, key) && !(s.AdminToken != "" && eq(req.Token, s.AdminToken)) {
 		s.deny(w, r, "stop", "key")
 		return
 	}

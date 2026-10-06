@@ -43,7 +43,11 @@ type Env struct {
 	SessionIdle   time.Duration // SESSION_IDLE_MIN (5): sem espectador, desliga
 	PublicMode    string        // PUBLIC_MODE: preview (EM TESTE) | live (AO VIVO)
 	SiteOrigin    string        // SITE_ORIGIN: https://… aceito no Origin do POST de sessão
-	AdminToken    string        // TVTL_ADMIN_TOKEN (nunca registrado em log)
+	AdminToken    string        // TVTL_ADMIN_TOKEN (nunca registrado em log; só linha de comando)
+	// Portão do site.
+	SiteGate          bool   // SITE_GATE: on (padrão) exige login em tudo
+	SitePasswordHash  string // SITE_PASSWORD_HASH (argon2id; make set-password)
+	SiteSessionSecret string // SITE_SESSION_SECRET (assina o cookie)
 }
 
 // OnDemand: só trabalha dentro de sessão.
@@ -144,6 +148,15 @@ func LoadEnv() (Env, error) {
 	}
 	e.SiteOrigin = strings.TrimRight(os.Getenv("SITE_ORIGIN"), "/")
 	e.AdminToken = strings.TrimSpace(os.Getenv("TVTL_ADMIN_TOKEN"))
+	switch strings.ToLower(get("SITE_GATE", "on")) {
+	case "on", "true", "1":
+		e.SiteGate = true
+	case "off", "false", "0":
+	default:
+		return e, fmt.Errorf("SITE_GATE deve ser on|off")
+	}
+	e.SitePasswordHash = strings.TrimSpace(os.Getenv("SITE_PASSWORD_HASH"))
+	e.SiteSessionSecret = strings.TrimSpace(os.Getenv("SITE_SESSION_SECRET"))
 	e.UserAgent = get("HTTP_USER_AGENT", "tvtl/0.1 (+https://github.com/gloffreda/tv-ta-ligado)")
 	return e, nil
 }

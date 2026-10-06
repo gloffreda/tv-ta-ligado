@@ -52,7 +52,7 @@ func TestSessionStartRequiresTokenConfirmAndOrigin(t *testing.T) {
 		name, origin, ip string
 		body             any
 	}{
-		{"sem token", good, "10.0.0.1", map[string]string{"confirm": "LIGAR"}},
+		{"sem token nem login", good, "10.0.0.1", map[string]string{"confirm": "LIGAR"}},
 		{"token errado", good, "10.0.0.1", map[string]string{"token": strings.Repeat("x", 32), "confirm": "LIGAR"}},
 		{"sem confirmação", good, "10.0.0.1", map[string]string{"token": token}},
 		{"confirmação errada", good, "10.0.0.2", map[string]string{"token": token, "confirm": "ligar"}},
@@ -61,8 +61,12 @@ func TestSessionStartRequiresTokenConfirmAndOrigin(t *testing.T) {
 		{"campo extra", good, "10.0.0.3", map[string]any{"token": token, "confirm": "LIGAR", "max_min": 999}},
 	}
 	for _, c := range cases {
-		if code, _ := post(t, u, c.origin, c.ip, c.body); code != http.StatusForbidden {
-			t.Errorf("%s: %d, quer 403", c.name, code)
+		want := http.StatusForbidden
+		if c.name == "sem token nem login" {
+			want = http.StatusUnauthorized
+		}
+		if code, _ := post(t, u, c.origin, c.ip, c.body); code != want {
+			t.Errorf("%s: %d, quer %d", c.name, code, want)
 		}
 	}
 	if _, ok, _ := s.Store.ActiveSession(ctx); ok {

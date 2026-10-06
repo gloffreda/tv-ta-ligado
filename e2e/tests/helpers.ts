@@ -55,7 +55,7 @@ export async function shots(page: Page, name: string) {
 }
 
 export async function check404s(page: Page) {
-  for (const p of ["/v1/admin", "/.env", "/nginx.conf", "/v1/session/start", "/v1/stats", "/etc/passwd", "/healthz", "/index.html", "/media/x.ogg"]) {
+  for (const p of ["/v1/admin", "/.env", "/nginx.conf", "/v1/session/start", "/v1/stats", "/etc/passwd", "/index.html", "/entrar.html", "/media/x.ogg"]) {
     const r = await page.request.get(p);
     expect(r.status(), p).toBe(404);
   }

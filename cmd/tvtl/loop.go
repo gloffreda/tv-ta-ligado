@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gloffreda/tv-ta-ligado/internal/api"
+	"github.com/gloffreda/tv-ta-ligado/internal/auth"
 	"github.com/gloffreda/tv-ta-ligado/internal/config"
 	"github.com/gloffreda/tv-ta-ligado/internal/dataseg"
 	"github.com/gloffreda/tv-ta-ligado/internal/ingest"
@@ -502,9 +503,11 @@ func (a *app) serve(ctx context.Context, listen string) error {
 	s := &api.Server{Store: a.store, Now: a.now, MediaDir: envOr("TVTL_MEDIA_DIR", "/media"),
 		ConfigDir: a.env.ConfigDir, Loc: a.env.Location, PublicMode: a.env.PublicMode, OnDemand: a.env.OnDemand(),
 		SiteOrigin: a.env.SiteOrigin, AdminToken: a.env.AdminToken, MaxSSEPerIP: 3,
+		Gate: a.env.SiteGate, Auth: auth.Signer{Secret: a.env.SiteSessionSecret, PasswordHash: a.env.SitePasswordHash},
 		Limits: session.Limits{MaxDur: a.env.SessionMaxDur, MaxUSD: a.env.SessionMaxUSD, IdleTimeout: a.env.SessionIdle}}
 	slog.Info("api", "public_mode", a.env.PublicMode, "run_mode", a.env.RunMode, "site_origin", a.env.SiteOrigin,
-		"admin_token", map[bool]string{true: "presente", false: "ausente"}[a.env.AdminToken != ""])
+		"admin_token", map[bool]string{true: "presente", false: "ausente"}[a.env.AdminToken != ""],
+		"site_gate", a.env.SiteGate, "senha_do_site", map[bool]string{true: "configurada", false: "AUSENTE"}[a.env.SitePasswordHash != "" && a.env.SiteSessionSecret != ""])
 	srv := &http.Server{Addr: listen, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() { <-ctx.Done(); srv.Close() }()
 	slog.Info("serve", "listen", listen, "clock_offset", a.env.ClockOffset)

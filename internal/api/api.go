@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gloffreda/tv-ta-ligado/internal/auth"
 	"github.com/gloffreda/tv-ta-ligado/internal/session"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
 )
@@ -32,6 +33,11 @@ type Server struct {
 	AdminToken  string
 	Limits      session.Limits
 	MaxSSEPerIP int // 3
+	// Portão do site (SITE_GATE): com ele ligado, /v1/* e /media/* exigem login.
+	Gate bool
+	Auth auth.Signer
+
+	loginLimit *auth.Limiter
 
 	hub        *hub
 	startLimit *limiter
@@ -117,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	s.hub = newHub(s)
 	s.startLimit = newLimiter(3, time.Minute)
 	s.stopKeys = map[int64]string{}
+	s.loginLimit = auth.NewLimiter()
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.Store.DB.Ping(r.Context()); err != nil {
@@ -162,6 +169,10 @@ func (s *Server) Handler() http.Handler {
 		}
 		writeJSON(w, 200, st)
 	})
+	mux.HandleFunc("POST /v1/auth/login", s.login)
+	mux.HandleFunc("POST /v1/auth/logout", s.logout)
+	mux.HandleFunc("GET /v1/auth/check", s.check)
+	mux.HandleFunc("GET /v1/auth/me", s.me)
 	mux.HandleFunc("POST /v1/session/start", s.sessionStart)
 	mux.HandleFunc("POST /v1/session/stop", s.sessionStop)
 	mux.HandleFunc("GET /media/{file}", func(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +185,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "audio/ogg")
 		http.ServeFile(w, r, filepath.Join(s.MediaDir, f))
 	})
-	return mux
+	return s.gate(mux)
 }
 
 func parseTime(v string, def time.Time) (time.Time, error) {

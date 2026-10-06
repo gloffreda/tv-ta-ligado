@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Player } from "./core/player";
+import { api } from "./core/api";
 import { badge } from "./core/badge";
 import { load, save } from "./core/storage";
 import { hhmm, itemLabel, NAMES } from "./core/labels";
@@ -11,13 +12,7 @@ import { Guide } from "./components/Guide";
 import { OffAir, StopButton } from "./components/SessionControls";
 
 type View = "pixel" | "vector";
-const hostOf = (u: string) => {
-  try {
-    return new URL(u).hostname.replace(/^www\./, "");
-  } catch {
-    return u;
-  }
-};
+
 const viewFromPath = (p: string): View => (p.replace(/\/+$/, "") === "/humano" ? "vector" : "pixel");
 
 export function App() {
@@ -26,11 +21,13 @@ export function App() {
   const [view, setView] = useState<View>(() => viewFromPath(location.pathname));
   const [captions, setCaptions] = useState(() => load("tvtl.captions", "on") !== "off");
   const [stopKey, setStopKey] = useState<string | null>(null);
+  const [me, setMe] = useState<{ gate: boolean; logged: boolean }>({ gate: true, logged: false });
   const [now, setNow] = useState(() => Date.now());
   const tv = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     void player.start();
+    api.me().then(setMe, () => {});
     const t = setInterval(() => setNow(player.clock.now()), 15000);
     const onPop = () => setView(viewFromPath(location.pathname));
     window.addEventListener("popstate", onPop);
@@ -62,13 +59,13 @@ export function App() {
     () => Object.fromEntries(Object.entries(sched?.personas ?? {}).map(([id, p]) => [id, p.rigs ?? {}])),
     [sched?.personas],
   );
-  const sources: Source[] = [];
+  // Veículos citados nas falas fact do item no ar (um link por veículo).
+  const outlets: Source[] = [];
   const seen = new Set<string>();
-  for (const l of snap.item?.lines ?? []) {
+  for (const l of onAir ? snap.item?.lines ?? [] : []) {
     if (l.type !== "fact") continue;
     for (const s of l.sources ?? []) {
-      const k = s.url + s.name;
-      if (!seen.has(k)) seen.add(k), sources.push(s);
+      if (!seen.has(s.name)) seen.add(s.name), outlets.push(s);
     }
   }
   const next = snap.next.find((n) => n.kind !== "bumper") ?? snap.next[0];
@@ -116,7 +113,7 @@ export function App() {
               <div id="tv" ref={tv}>
                 <StageBoundary><Stage player={player} kind={view} rigs={rigs} /></StageBoundary>
                 {captions && onAir && <Bubble line={snap.line} lineKey={snap.lineKey} scene={scene} />}
-                {!onAir && <OffAir session={session} onStarted={(k) => { setStopKey(k); void player.refreshSession(); }} />}
+                {!onAir && <OffAir session={session} logged={me.logged} onStarted={(k) => { setStopKey(k || null); void player.refreshSession(); }} />}
                 {onAir && snap.muted && (
                   <button type="button" className="unmute" onClick={() => player.setMuted(false)} data-act="mute">
                     Ligar o som
@@ -134,7 +131,7 @@ export function App() {
                   <button type="button" className="btn" id="btnFull" onClick={() => tv.current?.requestFullscreen?.()}>
                     Tela cheia
                   </button>
-                  {session?.active && <StopButton stopKey={stopKey} onStopped={() => { setStopKey(null); void player.refreshSession(); }} />}
+                  {session?.active && me.logged && <StopButton stopKey={stopKey} onStopped={() => { setStopKey(null); void player.refreshSession(); }} />}
                 </div>
                 <div className="leds" aria-hidden="true">
                   <span className={snap.connected ? "on" : ""} />
@@ -158,29 +155,22 @@ export function App() {
                 {onAir && next && <div className="small">às {hhmm(next.starts_at)}</div>}
               </div>
             </div>
+
+            <div className="srcline" data-panel="fontes">
+              <div className="srcs">
+                <span className="lbl">FONTES</span>
+                {outlets.length === 0 ? (
+                  <span className="none">—</span>
+                ) : (
+                  outlets.map((o) => (
+                    <a key={o.name} href={o.url} target="_blank" rel="noopener noreferrer">{o.name}</a>
+                  ))
+                )}
+              </div>
+              <span className="ai" data-ai-notice>Conteúdo gerado por IA · vozes e apresentadores sintéticos</span>
+            </div>
           </div>
 
-          <aside id="fontes" className="fontes" aria-label="Fontes do segmento no ar">
-            <div>
-              <h2 className="px" style={{ fontSize: 13, color: "var(--yellow)" }}>Fontes deste bloco</h2>
-              <p className="muted" style={{ margin: "8px 0 0" }}>Cada fato dito no ar aponta para a reportagem de origem. As piadas são nossas; os fatos, conferíveis.</p>
-            </div>
-            {!onAir || !snap.item ? (
-              <p style={{ margin: 0, fontFamily: "var(--vt)", fontSize: 22 }}>As fontes de cada bloco aparecem aqui quando o canal estiver no ar.</p>
-            ) : sources.length === 0 ? (
-              <p style={{ margin: 0, fontFamily: "var(--vt)", fontSize: 22 }}>Este trecho não traz fatos novos.</p>
-            ) : (
-              <ul className="srcs" data-panel="fontes">
-                {sources.map((s) => (
-                  <li key={s.url + s.name}>
-                    <div className="veh">{s.name}</div>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title || hostOf(s.url)}</a>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="note">Conteúdo gerado por inteligência artificial: roteiro, vozes e apresentadores são sintéticos.</div>
-          </aside>
         </section>
 
         <div className="sr" aria-live="polite" data-live-region>
@@ -268,6 +258,12 @@ export function App() {
             <a href="#topo">YouTube</a>
             <a href="#topo">Instagram</a>
             <a href="#topo">X</a>
+            {me.logged && (
+              <button type="button" className="btn" data-act="sair" style={{ minHeight: 0, padding: "0 10px", fontSize: 22 }}
+                onClick={() => void api.logout().finally(() => location.replace(me.gate ? "/entrar" : "/"))}>
+                Sair
+              </button>
+            )}
           </div>
         </div>
       </footer>

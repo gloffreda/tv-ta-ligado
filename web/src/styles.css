@@ -8,7 +8,7 @@
 body { margin: 0; background: var(--bg); }
 a { color: var(--yellow); } a:hover { color: #FFE08A; }
 .page { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.55; min-height: 100vh; }
-.wrap { max-width: 1200px; margin: 0 auto; padding: 16px 24px; }
+.wrap { max-width: 1440px; margin: 0 auto; padding: 16px 24px; }
 header.top { border-bottom: 2px solid var(--line); }
 header.top .wrap { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; }
 .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--ink); }
@@ -19,9 +19,9 @@ nav.main a { padding: 8px 12px; text-decoration: none; }
 .switch { display: inline-flex; border: 2px solid var(--btn-line); font-family: var(--vt); font-size: 22px; }
 .switch button { min-height: 44px; padding: 6px 12px; background: var(--btn); color: var(--ink); border: 0; cursor: pointer; font: inherit; }
 .switch button[aria-current="page"] { background: var(--yellow); color: var(--bg); }
-main { max-width: 1200px; margin: 0 auto; padding: 32px 24px 64px; display: flex; flex-direction: column; gap: 56px; }
+main { max-width: 1440px; margin: 0 auto; padding: 32px 24px 64px; display: flex; flex-direction: column; gap: 56px; }
 .live { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
-.live-main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.live-main { flex: 1 1 100%; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
 .badge { display: inline-flex; align-items: center; gap: 8px; background: var(--red); color: #FFFFFF; font-family: var(--pixel); font-size: 11px; padding: 8px 10px; }
 .badge .dot { width: 8px; height: 8px; background: #FFFFFF; display: inline-block; }
@@ -101,3 +101,11 @@ footer.bottom .links { display: flex; flex-wrap: wrap; gap: 16px; }
   .unmute { right: 8px; bottom: 8px; font-size: 9px; }
 }
 @media (prefers-reduced-motion: reduce) { .badge.live .dot { animation: none; } .guide { scroll-behavior: auto; } }
+
+/* Linha discreta abaixo dos cards: veículos do item no ar + aviso de IA (fixo). */
+.srcline { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 16px; border: 1px solid var(--line); padding: 8px 12px; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.srcline .srcs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.srcline .lbl { font-family: var(--pixel); font-size: 9px; color: var(--yellow); letter-spacing: 1px; }
+.srcline a { overflow-wrap: anywhere; }
+.srcline .ai { margin-left: auto; }
+@media (max-width: 600px) { .srcline .ai { margin-left: 0; flex-basis: 100%; } }
