@@ -20,7 +20,8 @@ CMD ["lipsync-server", "--listen", ":8080", "--rhubarb", "/opt/rhubarb/rhubarb"]
 
 # Imagem principal: tvtl + ffmpeg (codificação Opus/MP3 e render).
 FROM alpine:3.20 AS tvtl
-RUN apk add --no-cache ffmpeg && adduser -D -H -u 10001 tvtl
+RUN apk add --no-cache ffmpeg && adduser -D -H -u 10001 tvtl \
+ && mkdir -p /media && chown 1000:1000 /media  # volume tvtl_media nasce gravável pelo TVTL_UID padrão
 COPY --from=build /out/tvtl /usr/local/bin/tvtl
 COPY config /app/config
 WORKDIR /app

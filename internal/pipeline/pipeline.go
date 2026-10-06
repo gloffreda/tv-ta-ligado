@@ -122,7 +122,7 @@ func (p *Pipeline) Draft(ctx context.Context, blockName string) (Result, error) 
 	if err != nil {
 		return Result{}, err
 	}
-	segID, err := p.Store.CreateSegment(ctx, rundownID, blockName)
+	segID, err := p.Store.CreateSegment(ctx, rundownID, blockName, now)
 	if err != nil {
 		return Result{}, err
 	}
@@ -378,9 +378,6 @@ func (p *Pipeline) CheckDraft(ctx context.Context, segID int64) (Result, error) 
 		return res, err
 	}
 	if status == "approved" {
-		if err := p.Store.Air(ctx, segID, block.Name, "live"); err != nil {
-			slog.Warn("airing", "erro", err)
-		}
 		// Memória: só de segmento aprovado; falha aqui não derruba o segmento.
 		p.remember(ctx, segID, outs, personas, lex)
 	}

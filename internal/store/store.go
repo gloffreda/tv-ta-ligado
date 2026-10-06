@@ -379,9 +379,11 @@ func (s *Store) SetRundownStatus(ctx context.Context, id int64, status string) e
 
 // ---- segmentos e falas ----
 
-func (s *Store) CreateSegment(ctx context.Context, rundownID int64, block string) (int64, error) {
+// CreateSegment grava o segmento com o horário do relógio do app (que pode
+// estar deslocado por CLOCK_OFFSET na homologação).
+func (s *Store) CreateSegment(ctx context.Context, rundownID int64, block string, at time.Time) (int64, error) {
 	var id int64
-	err := s.DB.QueryRow(ctx, `INSERT INTO segments(rundown_id, block) VALUES ($1,$2) RETURNING id`, rundownID, block).Scan(&id)
+	err := s.DB.QueryRow(ctx, `INSERT INTO segments(rundown_id, block, created_at) VALUES ($1,$2,$3) RETURNING id`, rundownID, block, at).Scan(&id)
 	return id, err
 }
 
@@ -735,49 +737,6 @@ func (s *Store) EventsSince(ctx context.Context, t time.Time) ([]EventView, erro
 // IngestCounts: artigos e fatos criados desde t.
 func (s *Store) IngestCounts(ctx context.Context, t time.Time) (articles, facts int, err error) {
 	err = s.DB.QueryRow(ctx, `SELECT (SELECT count(*) FROM articles WHERE fetched_at >= $1), (SELECT count(*) FROM facts WHERE created_at >= $1)`, t).Scan(&articles, &facts)
-	return
-}
-
-// ---- exibições (estreia e reprise) ----
-
-// Air registra uma exibição do segmento: 'live' (estreia) ou 'replay'.
-func (s *Store) Air(ctx context.Context, segmentID int64, block, kind string) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO airings(segment_id, block, kind) VALUES ($1,$2,$3)`, segmentID, block, kind)
-	return err
-}
-
-// LastAiringAt: última exibição (estreia ou reprise) do bloco.
-func (s *Store) LastAiringAt(ctx context.Context, block string) (time.Time, bool, error) {
-	var t *time.Time
-	err := s.DB.QueryRow(ctx, `SELECT max(aired_at) FROM airings WHERE block=$1`, block).Scan(&t)
-	if err != nil || t == nil {
-		return time.Time{}, false, err
-	}
-	return *t, true, nil
-}
-
-// ReplayCandidate: segmento aprovado do bloco criado desde since, cujos fatos
-// citados continuam válidos, exibido há mais tempo (e menos vezes).
-func (s *Store) ReplayCandidate(ctx context.Context, block string, since, now time.Time) (int64, bool, error) {
-	var id int64
-	err := s.DB.QueryRow(ctx, `
-		SELECT sg.id FROM segments sg
-		WHERE sg.block=$1 AND sg.status='approved' AND sg.created_at >= $2
-		  AND NOT EXISTS (
-		    SELECT 1 FROM lines l JOIN line_claims lc ON lc.line_id=l.id JOIN facts f ON f.id=lc.fact_id
-		    WHERE l.segment_id=sg.id AND l.status IN ('ok','rewritten') AND f.expires_at <= $3)
-		ORDER BY (SELECT max(aired_at) FROM airings a WHERE a.segment_id=sg.id) NULLS FIRST,
-		         (SELECT count(*) FROM airings a WHERE a.segment_id=sg.id), sg.id DESC
-		LIMIT 1`, block, since, now).Scan(&id)
-	if err == pgx.ErrNoRows {
-		return 0, false, nil
-	}
-	return id, err == nil, err
-}
-
-// AiringCounts: estreias e reprises desde t.
-func (s *Store) AiringCounts(ctx context.Context, t time.Time) (live, replay int, err error) {
-	err = s.DB.QueryRow(ctx, `SELECT count(*) FILTER (WHERE kind='live'), count(*) FILTER (WHERE kind='replay') FROM airings WHERE aired_at >= $1`, t).Scan(&live, &replay)
 	return
 }
 

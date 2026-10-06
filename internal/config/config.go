@@ -33,6 +33,8 @@ type Env struct {
 	ReplayWhenIdle   bool          // REPLAY_WHEN_IDLE
 	Viewers          int           // VIEWERS (no Sprint 3 vira a contagem real)
 	ReplayWindow     time.Duration // REPLAY_WINDOW
+	ClockOffset      time.Duration // CLOCK_OFFSET (homologação no futuro, ex.: +2h)
+	BufferMin        time.Duration // BUFFER_MIN (linha do tempo à frente)
 }
 
 // Price em dólares por milhão de tokens.
@@ -98,6 +100,12 @@ func LoadEnv() (Env, error) {
 	}
 	if e.ReplayWindow, err = time.ParseDuration(get("REPLAY_WINDOW", "6h")); err != nil {
 		return e, fmt.Errorf("REPLAY_WINDOW: %w", err)
+	}
+	if e.ClockOffset, err = time.ParseDuration(get("CLOCK_OFFSET", "0s")); err != nil {
+		return e, fmt.Errorf("CLOCK_OFFSET (ex.: +2h): %w", err)
+	}
+	if e.BufferMin, err = time.ParseDuration(get("BUFFER_MIN", "10m")); err != nil {
+		return e, fmt.Errorf("BUFFER_MIN: %w", err)
 	}
 	e.UserAgent = get("HTTP_USER_AGENT", "tvtl/0.1 (+https://github.com/gloffreda/tv-ta-ligado)")
 	return e, nil
@@ -165,10 +173,21 @@ type Capital struct {
 
 type Schedule struct {
 	RetryAfter Duration     `yaml:"retry_after"`
+	Timeline   TimelineCfg  `yaml:"timeline"`
 	Exclude    ExcludeRules `yaml:"exclude"`
 	Segment    SegmentRules `yaml:"segment"`
 	Check      CheckRules   `yaml:"check"`
 	Blocks     []Block      `yaml:"blocks"`
+}
+
+// TimelineCfg: pausas e reprise da linha do tempo.
+type TimelineCfg struct {
+	PauseLinesMS    int      `yaml:"pause_between_lines_ms"`
+	PauseSpeakersMS int      `yaml:"pause_between_speakers_ms"`
+	PauseItemsMS    int      `yaml:"pause_between_items_ms"`
+	ReplayMinGap    Duration `yaml:"replay_min_gap"`
+	BumperText      string   `yaml:"bumper_text"`
+	BumperSpeaker   string   `yaml:"bumper_speaker"`
 }
 
 // ExcludeRules: temas fora do brief (por ora, saúde).
@@ -292,6 +311,25 @@ func LoadSchedule(dir string) (Schedule, error) {
 	}
 	if s.Check.JudgeConcurrency == 0 {
 		s.Check.JudgeConcurrency = 4
+	}
+	t := &s.Timeline
+	if t.PauseLinesMS == 0 {
+		t.PauseLinesMS = 350
+	}
+	if t.PauseSpeakersMS == 0 {
+		t.PauseSpeakersMS = 500
+	}
+	if t.PauseItemsMS == 0 {
+		t.PauseItemsMS = 800
+	}
+	if t.ReplayMinGap.Duration == 0 {
+		t.ReplayMinGap.Duration = time.Hour
+	}
+	if t.BumperText == "" {
+		t.BumperText = "Tá ligado? Já voltamos."
+	}
+	if t.BumperSpeaker == "" {
+		t.BumperSpeaker = "duda"
 	}
 	return s, nil
 }

@@ -14,13 +14,21 @@ import (
 )
 
 type Run struct {
-	Command  string
-	Args     []string
-	Started  time.Time
-	Finished time.Time
-	Err      error
-	Notes    []string
-	Every    map[string]time.Duration // grade (para a projeção diária)
+	Command               string
+	Args                  []string
+	Started               time.Time
+	Finished              time.Time
+	Err                   error
+	Notes                 []string
+	Every                 map[string]time.Duration // grade (para a projeção diária)
+	MinBuffer, BufferGoal time.Duration            // linha do tempo (run)
+	TTSPerDay             TTSDay                   // projeção de TTS
+}
+
+// TTSDay: caracteres falados por dia e preço por milhão do provedor de produção.
+type TTSDay struct {
+	Provider      string
+	PricePerMChar float64
 }
 
 // Write gera um único arquivo por execução: output/relatorio-AAAAMMDD-HHMMSS-<comando>.md.
@@ -162,11 +170,19 @@ func Build(ctx context.Context, st *store.Store, r Run, loc *time.Location, dayS
 		}
 	}
 
-	live, replay, err := st.AiringCounts(ctx, r.Started)
+	kinds, err := st.TimelineKinds(ctx, r.Started, r.Finished)
 	if err != nil {
 		return "", err
 	}
-	f("\n## Exibições nesta execução\n\n- Estreias: %d · Reprises: %d\n", live, replay)
+	gaps, gapDur, err := st.TimelineGaps(ctx, r.Started, r.Finished)
+	if err != nil {
+		return "", err
+	}
+	f("\n## Linha do tempo nesta execução\n\n- Itens que começaram: estreias %d · reprises %d · vinhetas %d\n", kinds["segment"], kinds["replay"], kinds["bumper"])
+	if r.MinBuffer > 0 {
+		f("- Menor buffer à frente observado: %s (meta ≥ %s)\n", r.MinBuffer.Round(time.Second), r.BufferGoal)
+	}
+	f("- Buracos de silêncio não planejados: %d (%s)\n", gaps, gapDur.Round(time.Second))
 
 	if err := costSection(ctx, &b, st, r, exArts); err != nil {
 		return "", err
@@ -210,6 +226,8 @@ func costSection(ctx context.Context, b *strings.Builder, st *store.Store, r Run
 		f("| %s | %.4f |\n", p, byPurpose[p])
 		total += byPurpose[p]
 	}
+	f("| tts | %.4f |\n", byPurpose["tts"])
+	total += byPurpose["tts"]
 	f("| **total** | **%.4f** |\n", total)
 	if extractedArticles > 0 {
 		f("\n- Custo de extração por artigo: US$ %.5f (%d artigos)\n", byPurpose["extract"]/float64(extractedArticles), extractedArticles)

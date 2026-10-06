@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -32,6 +31,7 @@ import (
 	"github.com/gloffreda/tv-ta-ligado/internal/report"
 	"github.com/gloffreda/tv-ta-ligado/internal/rundown"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
+	"github.com/gloffreda/tv-ta-ligado/internal/timeline"
 	"github.com/gloffreda/tv-ta-ligado/internal/tts"
 )
 
@@ -52,6 +52,8 @@ const usage = `uso: tvtl <comando> [opções]
   tts-bench [--providers a,b] [--seconds 60]   fator de tempo real dos TTS locais
   audition [--out audition]   audição às cegas das vozes candidatas
   voice --segment ID          sintetiza as falas de um segmento aprovado
+  serve [--listen :8080]      API da linha do tempo (/v1/now, /v1/timeline, /v1/events, /media)
+  render --from now --minutes 15 --out out   MP3 + legendas.srt da linha do tempo
   debug-proxy --listen :5432 --target postgres:5432
 `
 
@@ -73,6 +75,7 @@ type app struct {
 	env     config.Env
 	store   *store.Store
 	metered *llm.Metered
+	sched   *timeline.Scheduler // só no run (para o relatório)
 }
 
 func newApp(ctx context.Context) (*app, error) {
@@ -96,7 +99,11 @@ func newApp(ctx context.Context) (*app, error) {
 	} else {
 		slog.Warn("ANTHROPIC_API_KEY: ausente")
 	}
-	m := &llm.Metered{Inner: inner, Prices: env.Prices, MaxDailyUSD: env.MaxDailyUSD, Ledger: st, Loc: env.Location}
+	m := &llm.Metered{Inner: inner, Prices: env.Prices, MaxDailyUSD: env.MaxDailyUSD, Ledger: st, Loc: env.Location,
+		Now: func() time.Time { return time.Now().Add(env.ClockOffset) }}
+	if env.ClockOffset != 0 {
+		slog.Warn("CLOCK_OFFSET ativo: esta instância roda deslocada no tempo", "offset", env.ClockOffset)
+	}
 	return &app{env: env, store: st, metered: m}, nil
 }
 
@@ -108,7 +115,7 @@ func (missingKey) Complete(context.Context, llm.Request) (llm.Response, error) {
 
 func (a *app) pipeline() *pipeline.Pipeline {
 	return &pipeline.Pipeline{
-		Store: a.store, LLM: a.metered, Budget: a.metered, Env: a.env, ConfigDir: a.env.ConfigDir,
+		Store: a.store, LLM: a.metered, Budget: a.metered, Env: a.env, ConfigDir: a.env.ConfigDir, Now: a.now,
 		CandidateWindow: 36 * time.Hour, ReuseWindow: 6 * time.Hour,
 	}
 }
@@ -119,7 +126,7 @@ func (a *app) ingester() (*ingest.Ingester, error) {
 		return nil, err
 	}
 	return &ingest.Ingester{Store: a.store, HTTP: &http.Client{Timeout: 30 * time.Second}, Feeds: feeds,
-		UA: a.env.UserAgent, Loc: a.env.Location, MaxAge: 48 * time.Hour}, nil
+		UA: a.env.UserAgent, Loc: a.env.Location, MaxAge: 48 * time.Hour, Now: a.now}, nil
 }
 
 func dispatch(ctx context.Context, cmd string, args []string) (err error) {
@@ -135,6 +142,8 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 	providers := fs.String("providers", "chatterbox,kokoro,piper", "provedores do benchmark")
 	seconds := fs.Int("seconds", 60, "segundos de áudio por provedor no benchmark")
 	outDir := fs.String("out", "audition", "pasta de saída (audition, render)")
+	from := fs.String("from", "now", "início do render: now, -15m, +5m ou RFC 3339")
+	minutes := fs.Int("minutes", 15, "minutos do render")
 	target := fs.String("target", "postgres:5432", "destino")
 	_ = fs.Parse(args)
 
@@ -178,6 +187,10 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 		return a.audit(ctx, *auditDir, *banterModel)
 	case "audition":
 		return a.audition(ctx, *outDir)
+	case "serve":
+		return a.serve(ctx, *listen)
+	case "render":
+		return a.render(ctx, *from, *minutes, *outDir)
 	case "voice":
 		v, err := a.voicer(ctx)
 		if err != nil {
@@ -235,6 +248,10 @@ func (a *app) audit(ctx context.Context, dir, banterModel string) error {
 }
 
 func (a *app) writeReport(r report.Run) {
+	if a.sched != nil {
+		r.MinBuffer, _ = a.sched.MinBuffer()
+		r.BufferGoal = a.env.BufferMin
+	}
 	if sched, err := config.LoadSchedule(a.env.ConfigDir); err == nil {
 		r.Every = map[string]time.Duration{}
 		for _, b := range sched.Blocks {
@@ -357,115 +374,6 @@ func (a *app) loadGlossary(ctx context.Context, in *ingest.Ingester) error {
 		slog.Warn("glossário: termo fora", "termo", t, "motivo", why)
 	}
 	return nil
-}
-
-// run é o loop principal.
-func (a *app) run(ctx context.Context) error {
-	if _, err := a.store.Migrate(ctx); err != nil {
-		return err
-	}
-	in, err := a.ingester()
-	if err != nil {
-		return err
-	}
-	slog.Info("tvtl run", "ingestao_a_cada", a.env.IngestInterval, "generate", a.env.Generate, "teto_usd_dia", a.env.MaxDailyUSD,
-		"replay_when_idle", a.env.ReplayWhenIdle, "viewers", a.env.Viewers,
-		"model_fast", a.env.ModelFast, "model_smart", a.env.ModelSmart)
-
-	p := a.pipeline()
-	if err := a.loadGlossary(ctx, in); err != nil {
-		slog.Warn("glossário não carregado", "erro", err)
-	}
-	doIngest := func() { a.ingestOnce(ctx, in) }
-	doIngest()
-	ingestT := time.NewTicker(a.env.IngestInterval)
-	defer ingestT.Stop()
-	genT := time.NewTicker(time.Minute)
-	defer genT.Stop()
-	// Um relatório por execução: o do `run` é gravado ao encerrar o loop.
-	cycle := func() { a.generateDue(ctx, p) }
-	cycle()
-	for {
-		select {
-		case <-ctx.Done():
-			slog.Info("encerrando")
-			return nil
-		case <-ingestT.C:
-			doIngest()
-		case <-genT.C:
-			cycle()
-		}
-	}
-}
-
-// generateDue gera um segmento para cada bloco vencido segundo schedule.yaml
-// e devolve quantos segmentos foram tentados.
-func (a *app) generateDue(ctx context.Context, p *pipeline.Pipeline) (n int) {
-	if a.env.AnthropicAPIKey == "" {
-		return 0
-	}
-	if err := p.Guard(ctx); err != nil {
-		slog.Debug("geração suspensa", "motivo", err)
-		return 0
-	}
-	sched, err := config.LoadSchedule(a.env.ConfigDir)
-	if err != nil {
-		slog.Error("schedule.yaml", "erro", err)
-		return 0
-	}
-	now := time.Now()
-	for _, b := range sched.Blocks {
-		if ctx.Err() != nil {
-			return n
-		}
-		lastAir, aired, err := a.store.LastAiringAt(ctx, b.Name)
-		if err != nil {
-			slog.Error("agenda", "erro", err)
-			return n
-		}
-		if aired && now.Sub(lastAir) < b.Every.Duration {
-			continue
-		}
-		// Sem audiência: reprisa em vez de gerar (custo zero).
-		if a.env.ReplayWhenIdle && a.env.Viewers == 0 {
-			id, err := p.Replay(ctx, b.Name, a.env.ReplayWindow)
-			switch {
-			case err != nil:
-				slog.Error("reprise", "bloco", b.Name, "erro", err)
-			case id == 0:
-				slog.Info("sem audiência e nada a reprisar", "bloco", b.Name, "janela", a.env.ReplayWindow)
-			default:
-				slog.Info("reprise", "bloco", b.Name, "segmento", id)
-			}
-			continue
-		}
-		lastTry, tryFound, _ := a.store.LastSegmentAt(ctx, b.Name, "rejected", "draft")
-		if tryFound && now.Sub(lastTry) < sched.RetryAfter.Duration {
-			continue
-		}
-		start := time.Now()
-		res, err := p.Generate(ctx, b.Name)
-		if res.SegmentID != 0 {
-			n++
-		}
-		if err != nil {
-			if errors.Is(err, llm.ErrBudget) || errors.Is(err, pipeline.ErrBlackout) || errors.Is(err, pipeline.ErrGenerateOff) {
-				slog.Warn("geração parada", "motivo", err)
-				return n
-			}
-			slog.Error("geração falhou", "bloco", b.Name, "segmento", res.SegmentID, "erro", err)
-			continue
-		}
-		dropped := 0
-		for _, o := range res.Outcomes {
-			if o.Status == "dropped" {
-				dropped++
-			}
-		}
-		slog.Info("segmento", "bloco", b.Name, "id", res.SegmentID, "status", res.Status, "motivo", res.Reason,
-			"falas", len(res.Outcomes), "cortadas", dropped, "duracao", time.Since(start).Round(time.Second))
-	}
-	return n
 }
 
 func (a *app) stats(ctx context.Context) error {

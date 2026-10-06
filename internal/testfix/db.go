@@ -2,10 +2,12 @@ package testfix
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -49,4 +51,37 @@ func DB(t *testing.T, name string) *store.Store {
 		t.Fatal(err)
 	}
 	return st
+}
+
+// VoicedSegment cria um segmento aprovado do bloco com falas já com áudio
+// (durações em ms, falantes alternados) e devolve o id.
+func VoicedSegment(t *testing.T, st *store.Store, block string, created time.Time, durs ...int) int64 {
+	t.Helper()
+	ctx := context.Background()
+	rid, err := st.CreateRundown(ctx, block, created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sid, err := st.CreateSegment(ctx, rid, block, created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	speakers := []string{"orlando", "duda"}
+	for i, d := range durs {
+		lid, err := st.InsertLine(ctx, store.Line{SegmentID: sid, Seq: i + 1, Speaker: speakers[i%2], Type: "banter", Text: fmt.Sprintf("fala %d", i+1)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		a := store.AudioAsset{Hash: fmt.Sprintf("%064x", sid*1000+int64(i)), Path: "/dev/null", DurationMS: d, Provider: "fake", Voice: "v", SpokenText: "x"}
+		if err := st.InsertAudioAsset(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.SetLineAudio(ctx, lid, fmt.Sprintf("fala %d", i+1), a, 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.FinishSegment(ctx, sid, "approved", ""); err != nil {
+		t.Fatal(err)
+	}
+	return sid
 }

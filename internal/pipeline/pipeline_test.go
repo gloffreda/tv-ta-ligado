@@ -215,11 +215,6 @@ func TestGenerateEndToEnd(t *testing.T) {
 		t.Fatalf("custo do segmento %.6f != soma %.6f", seg.CostUSD, sum)
 	}
 
-	// Exibição: estreia registrada.
-	if live, _, _ := st.AiringCounts(ctx, time.Time{}); live != 1 {
-		t.Fatalf("estreias=%d", live)
-	}
-
 	// Memória: a que cita pessoa real é descartada.
 	var mems int
 	_ = st.DB.QueryRow(ctx, `SELECT count(*) FROM persona_memory`).Scan(&mems)
@@ -250,7 +245,9 @@ func TestReportAfterRun(t *testing.T) {
 	st := testStore(t)
 	fx := seed(t, st)
 	p, _ := newPipeline(st, recorded(t, fx), testEnv(), testfix.Now)
-	started := time.Now().Add(-time.Second)
+	// O segmento usa o relógio do app (testfix.Now, no passado); fatos e
+	// artigos, o do banco. A janela do relatório cobre os dois.
+	started := testfix.Now.Add(-time.Hour)
 	if _, err := p.Generate(context.Background(), "noticias"); err != nil {
 		t.Fatal(err)
 	}
@@ -353,32 +350,6 @@ func TestGlossaryJoinsRundown(t *testing.T) {
 	}
 	if strings.Contains(scriptPrompt, "frente fria") {
 		t.Fatal("termo irrelevante não entra")
-	}
-}
-
-func TestReplayWhenIdle(t *testing.T) {
-	st := testStore(t)
-	fx := seed(t, st)
-	ctx := context.Background()
-	p, _ := newPipeline(st, recorded(t, fx), testEnv(), testfix.Now)
-	res, err := p.Generate(ctx, "noticias")
-	if err != nil || res.Status != "approved" {
-		t.Fatalf("%+v %v", res, err)
-	}
-	later, _ := newPipeline(st, llm.NewMock(nil), testEnv(), testfix.Now.Add(time.Hour))
-	id, err := later.Replay(ctx, "noticias", 6*time.Hour)
-	if err != nil || id != res.SegmentID {
-		t.Fatalf("deveria reprisar o segmento %d: %d %v", res.SegmentID, id, err)
-	}
-	live, replay, _ := st.AiringCounts(ctx, time.Time{})
-	if live != 1 || replay != 1 {
-		t.Fatalf("estreias=%d reprises=%d", live, replay)
-	}
-	// created_at vem do relógio do banco: envelhece o segmento para sair da janela.
-	_, _ = st.DB.Exec(ctx, `UPDATE segments SET created_at = $1`, testfix.Now.Add(-7*time.Hour))
-	tooLate, _ := newPipeline(st, llm.NewMock(nil), testEnv(), testfix.Now)
-	if id, _ := tooLate.Replay(ctx, "noticias", 6*time.Hour); id != 0 {
-		t.Fatal("fora da janela de 6h não há reprise")
 	}
 }
 

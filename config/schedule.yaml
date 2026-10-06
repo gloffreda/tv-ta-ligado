@@ -3,6 +3,16 @@
 # `retry_after` antes de tentar de novo.
 retry_after: 5m
 
+# Linha do tempo (Sprint 2). BUFFER_MIN (variável de ambiente, padrão 10m) é
+# quanto fica agendado à frente.
+timeline:
+  pause_between_lines_ms: 350      # mesma pessoa falando de novo
+  pause_between_speakers_ms: 500   # troca de quem fala
+  pause_between_items_ms: 800      # respiro no fim de cada item
+  replay_min_gap: 60m              # nunca repetir o mesmo segmento em menos que isso
+  bumper_text: "Tá ligado? Já voltamos."
+  bumper_speaker: duda
+
 # Temas fora do brief ficam fora da pauta (o MVP não tem bloco de saúde).
 exclude:
   url_parts: [/saude/, /saude., equilibrioesaude, /bem-estar/, /vivabem/, /medicina/, /coronavirus/]
