@@ -24,29 +24,7 @@ import (
 
 const mockModel = "mock-model"
 
-func testStore(t *testing.T) *store.Store {
-	t.Helper()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL não definido (rode `make test`)")
-	}
-	if !strings.Contains(url, "postgres-test") && os.Getenv("TVTL_ALLOW_ANY_TEST_DB") == "" {
-		t.Fatalf("recusando rodar testes fora do postgres-test: %s", url)
-	}
-	ctx := context.Background()
-	st, err := store.Open(ctx, url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(st.Close)
-	if _, err := st.DB.Exec(ctx, `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	return st
-}
+func testStore(t *testing.T) *store.Store { return testfix.DB(t, "pipeline") }
 
 type fixture struct {
 	st       *store.Store

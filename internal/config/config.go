@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/gloffreda/tv-ta-ligado/internal/tts"
 )
 
 // Env reúne as variáveis de ambiente do processo.
@@ -243,6 +245,9 @@ type Persona struct {
 	Blocks       []string `yaml:"blocks" json:"blocks"`
 	Never        []string `yaml:"never" json:"never"`
 	Relationship string   `yaml:"relationship" json:"relationship"`
+	// Voz (Sprint 2). Trocar a voz é só editar o YAML.
+	Voice          tts.Voice            `yaml:"voice" json:"-"`
+	FallbackVoices map[string]tts.Voice `yaml:"fallback_voices" json:"-"`
 }
 
 // Duration aceita "5m", "1h" no YAML.

@@ -1,0 +1,45 @@
+# Provedores de voz e audição às cegas (Sprint 2).
+# Benchmark de 06/10/2026 (ver DECISIONS.md): 60 s de texto, limite de CPU de produção.
+# Demanda: ~4 h de áudio novo/dia ≈ 10 min/h. Aprovado = gera mais do que isso com folga.
+providers:
+  kokoro:
+    approved: true
+    license: "Kokoro-82M v1.0, pesos Apache-2.0; kokoro-onnx MIT"
+    cpus: 2
+    rtf: 0.66
+    minutes_per_hour: 91
+    price_per_mchar: 0
+  chatterbox:
+    approved: false
+    reason: "RTF 8,66 com 4 CPUs (7 min de áudio/h < demanda de ~10 min/h); com 8 CPUs, RTF 7,53"
+    license: "Chatterbox Multilingual V3 pt-BR, MIT (marca d'água Perth mantida)"
+    cpus: 4
+    rtf: 8.66
+    minutes_per_hour: 7
+    price_per_mchar: 0
+  piper:
+    approved: false
+    reason: "vozes pt_BR (faber, cadu, jeff, edresson) derivam de modelos com licença não comercial"
+    license: "motor MIT; vozes pt_BR não comerciais"
+    cpus: 1
+    rtf: 1.47
+    minutes_per_hour: 41
+    price_per_mchar: 0
+
+monthly_chars: 6500000
+
+audition:
+  # ~20 s cada, com número em reais, porcentagem, sigla e pergunta.
+  text:
+    orlando: "Boa noite. Isso está checado? Então eu leio. O dólar comercial fechou a R$ 5,21, e o IPCA, o índice oficial de inflação, variou 0,32% no mês. O Copom, que define a taxa Selic, volta a se reunir em breve. E você, já entendeu o que isso muda no seu bolso?"
+    duda: "E aí, galera! Traduzindo pra quem tá chegando agora: com o dólar a R$ 5,21, aquela viagem ficou um pouquinho mais cara. O IPCA, a inflação oficial, mexeu 0,32% no mês. Parece pouco, né? Mas no fim do mês o bolso sente. Tá ligado?"
+  # Até 3 vozes pt-BR por provedor aprovado. A ordem é embaralhada na audição.
+  candidates:
+    orlando:
+      - {provider: kokoro, name: pm_santa, rate: 0.92, pitch: -1}
+      - {provider: kokoro, name: pm_alex, rate: 0.92, pitch: -1}
+      - {provider: kokoro, name: pf_dora, rate: 0.95, pitch: -2}
+    duda:
+      - {provider: kokoro, name: pf_dora, rate: 1.08, pitch: 0.5}
+      - {provider: kokoro, name: pm_alex, rate: 1.10, pitch: 1}
+      - {provider: kokoro, name: pm_santa, rate: 1.10, pitch: 1}

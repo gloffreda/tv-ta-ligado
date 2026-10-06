@@ -20,6 +20,8 @@ networks:
 volumes:
   tvtl_pgdata:
     name: tvtl_pgdata
+  tvtl_media:
+    name: tvtl_media
   tvtl_gomod:
     name: tvtl_gomod
   tvtl_gocache:
@@ -45,7 +47,9 @@ services:
     logging: *logging
 
   tvtl:
-    build: .
+    build:
+      context: .
+      target: tvtl
     image: tvtl:local
     command: ["run"]
     env_file:
@@ -62,6 +66,8 @@ services:
       - ./config:/app/config:ro
       # Relatório de cada execução (fora do git).
       - ./output:/app/output
+      # Áudio das falas (Opus), um arquivo por hash de voz + texto falado.
+      - tvtl_media:/media
     networks: [tvtl_net]
     depends_on:
       postgres:
@@ -69,6 +75,63 @@ services:
     restart: unless-stopped
     mem_limit: ${TVTL_MEM:-256m}
     cpus: ${TVTL_CPUS:-1}
+    logging: *logging
+
+  # Visemas: Rhubarb Lip Sync (modo fonético) sobre o áudio final.
+  lipsync:
+    build:
+      context: .
+      target: lipsync
+    image: tvtl-lipsync:local
+    networks: [tvtl_net]
+    restart: unless-stopped
+    mem_limit: ${TVTL_LIPSYNC_MEM:-512m}
+    cpus: ${TVTL_LIPSYNC_CPUS:-1}
+    logging: *logging
+
+  # Vozes locais, só CPU. Quais sobem: COMPOSE_PROFILES (Makefile: TTS_PROFILES).
+  tts-chatterbox:
+    profiles: [chatterbox]
+    build:
+      context: docker
+      dockerfile: tts-chatterbox/Dockerfile
+    image: tvtl-tts-chatterbox:local
+    environment:
+      TTS_THREADS: ${TVTL_CHATTERBOX_CPUS:-4}
+    volumes:
+      - ./config/voices:/voices:ro
+    networks: [tvtl_net]
+    restart: unless-stopped
+    mem_limit: ${TVTL_CHATTERBOX_MEM:-6g}
+    cpus: ${TVTL_CHATTERBOX_CPUS:-4}
+    logging: *logging
+
+  tts-kokoro:
+    profiles: [kokoro]
+    build:
+      context: docker
+      dockerfile: tts-kokoro/Dockerfile
+    image: tvtl-tts-kokoro:local
+    environment:
+      TTS_THREADS: ${TVTL_KOKORO_CPUS:-2}
+    networks: [tvtl_net]
+    restart: unless-stopped
+    mem_limit: ${TVTL_KOKORO_MEM:-1536m}
+    cpus: ${TVTL_KOKORO_CPUS:-2}
+    logging: *logging
+
+  tts-piper:
+    profiles: [piper]
+    build:
+      context: docker
+      dockerfile: tts-piper/Dockerfile
+    image: tvtl-tts-piper:local
+    environment:
+      TTS_THREADS: ${TVTL_PIPER_CPUS:-1}
+    networks: [tvtl_net]
+    restart: unless-stopped
+    mem_limit: ${TVTL_PIPER_MEM:-512m}
+    cpus: ${TVTL_PIPER_CPUS:-1}
     logging: *logging
 
   # Acesso local ao Postgres só para depuração: `make debug-up`.

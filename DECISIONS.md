@@ -368,3 +368,96 @@ zombarias). Custo médio por chamada: US$ 0,00105 (Haiku) contra US$ 0,00182
 (Sonnet), 42% a menos. Banter é cerca de 45% das falas, então o juiz fica ~19%
 mais barato e o segmento ~8% mais barato. **Adotado:** `JUDGE_BANTER_MODEL`
 tem como padrão `MODEL_FAST`. O modo fact continua no `MODEL_SMART`.
+
+## Parte B: voz
+
+### Provedores (adendo do Sprint 2: custo zero, locais primeiro)
+- Os visemas nunca dependem do provedor. São sempre extraídos do áudio final
+  (WAV 24 kHz) pelo serviço `lipsync`, com Rhubarb Lip Sync 1.14 em modo fonético
+  (`-r phonetic --extendedShapes GHX`), em container próprio. O servidor HTTP do
+  `lipsync` é o próprio binário `tvtl lipsync-server`.
+- Três provedores locais, cada um em container próprio, só CPU, com limites
+  configuráveis: `tts-chatterbox` (perfil `chatterbox`), `tts-kokoro` (`kokoro`) e
+  `tts-piper` (`piper`). Todos expõem a mesma API (`POST /synthesize` → WAV); o
+  servidor Python comum fica em `docker/common_server.py`.
+- Nuvem (`azure`, `google`, `polly`, `elevenlabs`) implementada com cliente HTTP
+  próprio (Polly com SigV4 escrito à mão, Google com API key ou service account),
+  testada contra servidor simulado e ativada **só se a chave existir**. Hoje
+  nenhuma chave existe, então nenhuma nuvem participa. Nenhum serviço gratuito não
+  oficial foi usado.
+- **Licenças (ver `LICENSES.md`):** as quatro vozes pt_BR publicadas do Piper
+  derivam de modelos de licença não comercial (lessac: só pesquisa; ryan: CC
+  BY-NC-SA). Ficam fora do ar; o Piper entrou só na medição. Kokoro (Apache-2.0)
+  e Chatterbox (MIT) estão liberados.
+- **Chatterbox:** existe o finetune oficial pt-BR
+  (`ResembleAI/Chatterbox-Multilingual-pt-br`, V3, MIT). O container usa o código
+  de inferência da Space oficial pt-BR e mantém a marca d'água Perth. Não há
+  `config/voices/orlando_ref.wav` nem `duda_ref.wav`, então só a voz padrão do
+  modelo estaria disponível. As amostras da demo não têm licença declarada e não
+  foram usadas.
+
+### Benchmark (06/10/2026, 60 s de texto, limite de CPU de produção, um provedor por vez)
+
+Demanda: ~4 h de áudio novo por dia ≈ **10 min de áudio por hora** (antes de
+reprise e cache). Regra: quem não gera mais do que isso fica fora da audição.
+
+| provedor | CPUs | memória | RTF (s de CPU por s de áudio) | min de áudio/hora | resultado |
+|---|---|---|---|---|---|
+| kokoro | 2 | ~640 MB | **0,66** | **91** | **aprovado** (9× a demanda) |
+| piper (faber) | 1 | ~190 MB | 1,47 | 41 | capacidade ok, **fora por licença** |
+| chatterbox (pt-BR) | 4 | ~4,9 GB | 8,66 | 7 | **reprovado** (< demanda) |
+| chatterbox (informativo) | 8 | ~4,9 GB | 7,53 | 8 | não escala com CPU (geração sequencial) |
+
+- O Kokoro mediu RTF 3,72 (16 min/h) na primeira tentativa: o onnxruntime abria
+  threads para as 16 CPUs do host dentro de um limite de 2. Com
+  `intra_op_num_threads = TTS_THREADS` (= limite de CPU) caiu para 0,66.
+- **Impacto nos outros containers** (`docker stats` antes e a cada 5 s durante):
+  a soma de CPU dos 19 vizinhos era 108% na linha de base. Durante o Kokoro: média
+  71%, máximo 123%. Durante o Chatterbox: média 91%, um pico de 199%. Durante o
+  Piper: média 26%. Nenhum aumento sustentado: os limites de CPU seguraram. Em
+  **memória**, o Chatterbox (4,9 GB) derrubou a memória disponível do host de
+  ~8 GB para ~3 GB (o swap já estava cheio). Mais um motivo para não deixá-lo no
+  ar; ele fica desligado.
+- **`TTS_PROVIDER=kokoro`** (único local aprovado). `TTS_FALLBACK=kokoro,piper`, o
+  padrão pedido. Como o Piper não está aprovado, ele não é registrado e o
+  roteador o ignora; na prática, o fallback é outra voz do próprio Kokoro
+  (`fallback_voices` na persona). Só o perfil `kokoro` sobe com o canal
+  (`TTS_PROFILES` no Makefile).
+- **Fallback:** o provedor de produção é tentado até 3 vezes seguidas. Depois
+  disso é rebaixado por 10 min (evento `tts_fallback` nos Avisos) e a fala sai na
+  primeira voz disponível de `TTS_FALLBACK`.
+
+### Audição às cegas
+- Candidatas só dos provedores aprovados: 3 vozes pt-BR do Kokoro para cada
+  avatar, com parâmetros no estilo do personagem (Orlando: rate 0,92 e pitch
+  −1 st; Duda: rate 1,08–1,10 e pitch +0,5–1 st). A ordem é embaralhada a cada
+  geração e o arquivo não leva o nome do provedor. Mapa em `audition/key.md` (com
+  RTF e custo/mês), players em `audition/index.html` (estático).
+- O pitch dos locais é aplicado depois da síntese, com ffmpeg
+  (`asetrate`/`atempo`), na conversão para o WAV canônico.
+- **Padrão até você escolher:** Orlando = `kokoro/pm_santa` (0,92; −1 st); Duda =
+  `kokoro/pf_dora` (1,08; +0,5 st). Custo zero; entre as vozes masculinas e a
+  feminina, ficou a que combina com cada personagem. Trocar é só editar `voice:`
+  no YAML da persona.
+
+### Pronúncia
+- `speech.Normalize` gera o `spoken_text`. Valores em reais viram "cinco reais e
+  quarenta e três centavos"; com mais de 2 decimais, leitura exata dígito a dígito
+  ("quatro vírgula nove oito cinco nove reais"), para nunca arredondar no ar.
+  Também cobre porcentagens, datas, horas, ordinais, "°C", "segunda-feira (5)" e
+  gênero do número ("duas pessoas", "duzentas vagas"). Siglas e termos vêm de
+  `config/pronunciation.yaml`.
+- **O texto checado nunca muda:** `lines.text` fica intacto e `lines.spoken_text`
+  guarda a versão falada. Antes de sintetizar, `speech.VerifyNumbers` relê o texto
+  falado (por extenso → número, com sinal, centavos, escalas, datas e ordinais) e
+  exige os mesmos números do texto checado. Se divergir, fala o texto checado como
+  está e registra `speech_mismatch`.
+
+### Armazenamento
+- Opus em Ogg (32 kbps, mono), um arquivo por `hash(voz + parâmetros + spoken_text)`
+  no volume `tvtl_media`. Mesma fala na mesma voz reaproveita o arquivo, sem nova
+  síntese e com custo zero na `line_audio`. O render final sai em MP3.
+- `audio_assets` é o cache por hash (com os visemas); `line_audio` liga cada fala
+  ao arquivo (line_id, path, duration_ms, provider, voice, visemes, cost_usd).
+- O custo de TTS vai para `llm_calls` com `purpose = 'tts'` (caracteres em
+  `input_tokens`), no mesmo teto diário do LLM. Locais custam 0.

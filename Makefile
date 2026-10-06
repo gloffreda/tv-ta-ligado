@@ -3,11 +3,15 @@ COMPOSE := docker compose -p tvtl
 GO      := $(COMPOSE) --profile tools run --rm --no-deps gotool
 N       ?= 5
 
-.PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build audit
+.PHONY: up down test migrate run logs clean show ingest tidy vet debug-up debug-down build audit audition bench
+
+# Vozes locais que sobem com o canal (perfis do compose). Só o aprovado no benchmark.
+TTS_PROFILES ?= kokoro
+export COMPOSE_PROFILES := $(TTS_PROFILES)
 
 build:
 	@mkdir -p output
-	$(COMPOSE) build tvtl
+	$(COMPOSE) build tvtl lipsync
 
 ## up: sobe o Postgres, constrói a imagem e aplica as migrações (não inicia a geração)
 up: build
@@ -47,6 +51,17 @@ show:
 
 ingest:
 	$(COMPOSE) run --rm tvtl ingest
+
+## audition: candidatas de voz às cegas em audition/ (provedores aprovados)
+audition: build
+	@mkdir -p audition
+	$(COMPOSE) up -d --wait lipsync tts-kokoro
+	$(COMPOSE) run --rm -T -v $(CURDIR)/audition:/app/audition tvtl audition --out audition
+
+## bench: fator de tempo real dos TTS locais (sobe cada um com o limite de produção)
+bench: build
+	$(COMPOSE) --profile chatterbox --profile piper up -d tts-chatterbox tts-kokoro tts-piper
+	$(COMPOSE) run --rm -T tvtl tts-bench --providers chatterbox,kokoro,piper --seconds 60
 
 ## audit: 60 casos adversariais contra o juiz REAL (custa API). BANTER_MODEL=... para comparar.
 audit: build

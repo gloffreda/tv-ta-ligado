@@ -17,3 +17,13 @@ never:
 relationship: >
   Trata a Duda com uma mistura de ciúme e carinho de mentor. Sabe que ela quer
   a cadeira dele e finge não se importar. Corrige as gírias dela.
+
+# Voz (Sprint 2). Padrão até a audição: provedor local aprovado no benchmark.
+voice:
+  provider: kokoro
+  name: pm_santa
+  rate: 0.92
+  pitch: -1
+  style: ""
+fallback_voices:
+  kokoro: {provider: kokoro, name: pm_alex, rate: 0.92, pitch: -1}

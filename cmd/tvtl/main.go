@@ -25,11 +25,14 @@ import (
 	"github.com/gloffreda/tv-ta-ligado/internal/config"
 	"github.com/gloffreda/tv-ta-ligado/internal/facts"
 	"github.com/gloffreda/tv-ta-ligado/internal/ingest"
+	"github.com/gloffreda/tv-ta-ligado/internal/lipsync"
 	"github.com/gloffreda/tv-ta-ligado/internal/llm"
+	"github.com/gloffreda/tv-ta-ligado/internal/persona"
 	"github.com/gloffreda/tv-ta-ligado/internal/pipeline"
 	"github.com/gloffreda/tv-ta-ligado/internal/report"
 	"github.com/gloffreda/tv-ta-ligado/internal/rundown"
 	"github.com/gloffreda/tv-ta-ligado/internal/store"
+	"github.com/gloffreda/tv-ta-ligado/internal/tts"
 )
 
 const usage = `uso: tvtl <comando> [opções]
@@ -46,6 +49,9 @@ const usage = `uso: tvtl <comando> [opções]
   show     --last N [--status approved|rejected]
   stats                       falas cortadas e custo médio por bloco
   audit [--dir D] [--banter-model M]   auditoria adversarial com o juiz real
+  tts-bench [--providers a,b] [--seconds 60]   fator de tempo real dos TTS locais
+  audition [--out audition]   audição às cegas das vozes candidatas
+  voice --segment ID          sintetiza as falas de um segmento aprovado
   debug-proxy --listen :5432 --target postgres:5432
 `
 
@@ -125,12 +131,20 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 	listen := fs.String("listen", ":5432", "endereço de escuta")
 	auditDir := fs.String("dir", "testdata/adversarial", "casos da auditoria")
 	banterModel := fs.String("banter-model", "", "modelo do juiz para banter (auditoria)")
+	rhubarb := fs.String("rhubarb", "/opt/rhubarb/rhubarb", "binário do Rhubarb")
+	providers := fs.String("providers", "chatterbox,kokoro,piper", "provedores do benchmark")
+	seconds := fs.Int("seconds", 60, "segundos de áudio por provedor no benchmark")
+	outDir := fs.String("out", "audition", "pasta de saída (audition, render)")
 	target := fs.String("target", "postgres:5432", "destino")
 	_ = fs.Parse(args)
 
 	switch cmd {
 	case "debug-proxy":
 		return debugProxy(ctx, *listen, *target)
+	case "lipsync-server":
+		return lipsync.Serve(ctx, *listen, *rhubarb)
+	case "tts-bench":
+		return ttsBench(ctx, *providers, *seconds)
 	case "feeds-check":
 		return feedsCheck(ctx)
 	case "help", "-h", "--help":
@@ -159,8 +173,23 @@ func dispatch(ctx context.Context, cmd string, args []string) (err error) {
 			a.writeReport(report.Run{Command: cmd, Args: args, Started: started, Finished: time.Now(), Err: err})
 		}()
 	}
-	if cmd == "audit" {
+	switch cmd {
+	case "audit":
 		return a.audit(ctx, *auditDir, *banterModel)
+	case "audition":
+		return a.audition(ctx, *outDir)
+	case "voice":
+		v, err := a.voicer(ctx)
+		if err != nil {
+			return err
+		}
+		personas, err := persona.Load(a.env.ConfigDir)
+		if err != nil {
+			return err
+		}
+		n, err := v.VoiceSegment(ctx, *segment, personas)
+		fmt.Printf("segmento %d: %d falas sintetizadas\n", *segment, n)
+		return err
 	}
 	err = a.exec(ctx, cmd, *block, *segment, *last, *status)
 	return err
@@ -591,4 +620,35 @@ func debugProxy(ctx context.Context, listen, target string) error {
 			io.Copy(c, t)
 		}(c)
 	}
+}
+
+// localURL: endereço do container de um provedor local (TTS_<NOME>_URL).
+func localURL(name string) string {
+	if u := os.Getenv("TTS_" + strings.ToUpper(name) + "_URL"); u != "" {
+		return u
+	}
+	return "http://tts-" + name + ":8080"
+}
+
+// ttsBench mede o fator de tempo real de cada provedor local.
+func ttsBench(ctx context.Context, list string, seconds int) error {
+	var rows []tts.BenchResult
+	for _, name := range strings.Split(list, ",") {
+		name = strings.TrimSpace(name)
+		l := &tts.Local{ProviderName: name, URL: localURL(name), HTTP: &http.Client{Timeout: 10 * time.Minute}}
+		voices, err := l.Voices(ctx)
+		if err != nil || len(voices) == 0 {
+			rows = append(rows, tts.BenchResult{Provider: name, Err: fmt.Sprintf("indisponível: %v", err)})
+			continue
+		}
+		r := tts.Bench(ctx, l, tts.Voice{Provider: name, Name: voices[0], Rate: 1}, time.Duration(seconds)*time.Second)
+		slog.Info("benchmark", "resultado", r.String(), "erro", r.Err)
+		rows = append(rows, r)
+	}
+	fmt.Println("| provedor | voz | áudio (s) | processamento (s) | RTF | min de áudio/hora | requisições | erro |")
+	fmt.Println("|---|---|---|---|---|---|---|---|")
+	for _, r := range rows {
+		fmt.Printf("| %s | %s | %.1f | %.1f | %.2f | %.0f | %d | %s |\n", r.Provider, r.Voice, r.AudioSec, r.ProcSec, r.RTF, r.MinPerHour, r.Requests, r.Err)
+	}
+	return nil
 }
