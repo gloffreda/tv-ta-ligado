@@ -154,6 +154,14 @@ func Deterministic(l Line, env *Env) StageResult {
 		}
 	}
 
+	// Banter não fala de pessoa real nem pelo cargo ("o ministro", "o técnico
+	// do time"): piada com cargo é piada com pessoa real.
+	if l.Type == TypeBanter {
+		if w := roleMention(text); w != "" {
+			fail("banter cita pessoa real pelo cargo ou função: %q (piada só com a situação ou com os avatares)", w)
+		}
+	}
+
 	// Uma fala, um tipo: a primeira frase de uma fala fact tem de ser o fato.
 	if l.Type == TypeFact && len(refs) > 0 {
 		if first, ok := firstContentSentence(text); ok && !sentenceHasFact(first, refs, lex) {
@@ -164,6 +172,44 @@ func Deterministic(l Line, env *Env) StageResult {
 	res := StageResult{Stage: StageDeterministic, Passed: len(reasons) == 0, Reasons: reasons}
 	res.Detail = map[string]any{"numbers": rawNumbers(nums), "names": nf.All()}
 	return res
+}
+
+// Cargos e funções que identificam uma pessoa real (forma normalizada, sem acento).
+var roleWords = map[string]bool{
+	"presidente": true, "presidenta": true, "vice-presidente": true, "ministro": true, "ministra": true, "prefeito": true, "prefeita": true,
+	"governador": true, "governadora": true, "deputado": true, "deputada": true, "senador": true, "senadora": true, "vereador": true,
+	"vereadora": true, "secretario": true, "juiz": true, "juiza": true, "desembargador": true, "desembargadora": true,
+	"procurador": true, "procuradora": true, "delegado": true, "delegada": true, "tecnico": true, "treinador": true,
+	"treinadora": true, "jogador": true, "jogadora": true, "goleiro": true, "atacante": true, "zagueiro": true, "ceo": true,
+	"diretor": true, "diretora": true, "empresario": true, "empresaria": true, "porta-voz": true, "papa": true, "rei": true, "rainha": true,
+	"candidato": true, "candidata": true, "lider": true, "comandante": true, "general": true, "cantor": true, "cantora": true,
+	"ator": true, "atriz": true, "influenciador": true, "influenciadora": true, "chanceler": true, "premie": true, "embaixador": true,
+	"embaixadora": true, "reitor": true, "reitora": true, "bilionario": true, "bilionaria": true, "magnata": true,
+}
+
+// roleMention devolve o primeiro cargo citado na fala ("" se nenhum).
+// ("secretária" e "técnica" ficam de fora: sem acento viram órgão e adjetivo.)
+// Palavras ambíguas (general, líder, papa, rei) só contam depois de artigo.
+func roleMention(text string) string {
+	words := strings.Fields(textutil.Normalize(text))
+	for i, w := range words {
+		w = strings.Trim(w, ".,;:!?()\"'“”")
+		if !roleWords[w] {
+			continue
+		}
+		if w == "general" || w == "lider" || w == "papa" || w == "rei" {
+			if i == 0 {
+				continue
+			}
+			switch strings.Trim(words[i-1], ".,;:!?") {
+			case "o", "a", "do", "da", "pro", "pra", "ao", "esse", "essa", "aquele", "aquela", "nosso", "nossa", "seu", "sua":
+			default:
+				continue
+			}
+		}
+		return w
+	}
+	return ""
 }
 
 // Aberturas curtas que podem vir antes do fato numa fala fact.
@@ -365,7 +411,7 @@ PERMITIDO: opinião, piada, exagero óbvio, reação emocional, comentário sobr
 
 PROIBIDO:
 1. Afirmação factual NOVA sobre o mundo real: algo verificável que não está nos fatos do segmento (quem, o quê, quando, onde, quanto, causa, consequência, parentesco, recorde...).
-2. Zombar de pessoa real ou de grupo real de pessoas.
+2. Zombar de pessoa real ou de grupo real de pessoas. Pessoa identificada só pelo cargo ou função ("o ministro", "a prefeita", "o técnico do time", "o presidente do Banco Central") é pessoa real: real_person_mocked=true se a fala ironiza, debocha ou faz piada com ela.
 
 is_joke=true se a fala tem tom de piada, ironia, deboche ou brincadeira (mesmo leve); false se é neutra ou séria.
 

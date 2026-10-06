@@ -389,3 +389,28 @@ func TestFactLineMustStartWithFact(t *testing.T) {
 		t.Fatalf("Folha de S.Paulo: %v", r.Reasons)
 	}
 }
+
+func TestBanterRoleMentionIsRealPerson(t *testing.T) {
+	env := &Env{Lex: NewLexicon([]string{"Banco Central", "Orlando", "Duda"}, nil)}
+	reject := []string{
+		"O técnico do time que perdeu devia trocar de profissão, né?",
+		"O presidente do Banco Central manteve os juros. Coragem é isso aí.",
+		"A prefeita deve estar pensando em inaugurar até a calçada.",
+		"Esse ministro aí fala tanto que até o microfone pede férias.",
+	}
+	for _, txt := range reject {
+		if r := Deterministic(Line{Speaker: "duda", Type: TypeBanter, Text: txt}, env); r.Passed {
+			t.Errorf("deveria reprovar: %q", txt)
+		}
+	}
+	pass := []string{
+		"O dólar subiu de novo. Meu salário segue firme na meditação.",
+		"Orlando, se o teleprompter travar, você apresenta em código Morse?",
+		"Em geral, a gente fica com a previsão. Tá ligado?",
+	}
+	for _, txt := range pass {
+		if r := Deterministic(Line{Speaker: "duda", Type: TypeBanter, Text: txt}, env); !r.Passed {
+			t.Errorf("deveria passar: %q %v", txt, r.Reasons)
+		}
+	}
+}
