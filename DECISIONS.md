@@ -461,3 +461,119 @@ reprise e cache). Regra: quem não gera mais do que isso fica fora da audição.
   ao arquivo (line_id, path, duration_ms, provider, voice, visemes, cost_usd).
 - O custo de TTS vai para `llm_calls` com `purpose = 'tts'` (caracteres em
   `input_tokens`), no mesmo teto diário do LLM. Locais custam 0.
+
+## Parte C: linha do tempo
+
+- **Modelo:** `timeline` (kind segment|replay|bumper|silence, segment_id, block,
+  starts_at, ends_at, status) mais `timeline_lines`, que congela cada fala do item
+  no agendamento (texto checado, texto falado, hash do áudio, deslocamento e
+  duração). Tudo em UTC. Um gatilho no banco recusa qualquer `UPDATE` de horário,
+  tipo ou segmento de item já agendado; só o `status` muda
+  (scheduled → aired). Itens novos só entram depois do último.
+- **Duração do item:** soma das falas + 350 ms entre falas da mesma pessoa +
+  500 ms na troca de quem fala + 800 ms de respiro no fim. A vinheta ganha 2 s de
+  silêncio planejado depois dela. Tudo configurável em `schedule.yaml → timeline`.
+- **Buffer:** o agendador roda a cada 10 s e enche até agora + `BUFFER_MIN`
+  (10 min) + 30 s de folga. Sem a folga, as amostras mostraram o buffer caindo
+  para 597–599 s entre dois ciclos.
+- **O que entra em cada horário:** entre os blocos com candidato, o mais atrasado
+  em relação ao seu `every` (tempo desde o último início do bloco ÷ `every`;
+  nunca agendado vem primeiro). Prioridade: segmento novo (aprovado, com voz,
+  nunca agendado) → reprise → vinheta.
+- **Reprise:** só de segmento que **já foi ao ar** (o teste pegou um segmento novo
+  entrando como "reprise" durante o bloqueio), criado nas últimas 6 h, sem
+  exibição nos últimos 60 min e com todos os fatos citados ainda válidos no
+  horário da reprise. Os menos exibidos vêm primeiro. A reprise preenche a grade
+  sempre que falta segmento novo, independentemente de `REPLAY_WHEN_IDLE`, que
+  continua controlando só se o loop gera conteúdo novo quando `VIEWERS=0`.
+- **Vinheta:** "Tá ligado? Já voltamos." na voz da Duda, sintetizada uma vez e
+  depois servida do cache.
+- **Bloqueio eleitoral:** dentro da janela, o agendador só usa reprise e vinheta
+  (a geração já estava bloqueada).
+- **Partida a frio:** como o que entra no buffer é imutável, ligar a linha do
+  tempo antes de ter áudio pronto daria 10 min de vinheta. O `run` dá voz primeiro
+  aos segmentos aprovados da janela de reprise (9,5 min na prova de 06/10) e só
+  então liga o agendador.
+- **Vazão real da voz:** no pipeline completo (síntese + visemas + Opus), um
+  segmento de ~14 falas e ~90 s levou de 1 a 2 min, ou seja RTF efetivo de ~1 a
+  1,4 (contra 0,66 só da síntese no benchmark). São 40 a 60 min de áudio por hora,
+  ainda 4 a 6 vezes a demanda.
+- **`airings` (Sprint 1.1)** foi substituída pela linha do tempo. A tabela ficou
+  no banco só por histórico das migrações.
+
+### API (`tvtl serve`, serviço `api`)
+- Sem porta no host. O perfil `debug` sobe `api-debug` (um repasse TCP) em
+  `127.0.0.1:${TVTL_API_PORT:-58080}`; 58080 estava livre em `ss -ltn`.
+- `GET /v1/now`: item no ar, fala atual, `position_ms` dentro da fala,
+  `item_position_ms` e horário do servidor. Numa pausa, `line` vem nulo, com
+  `next_line` e `next_line_in_ms`. Assim, qualquer cliente que entra no meio de uma
+  fala calcula onde está.
+- `GET /v1/timeline?from=&to=` (RFC 3339 ou unix ms; janela de até 6 h): itens com
+  falas, `text`, `audio_url`, duração, deslocamento, horários absolutos, visemas
+  e fontes (nome e URL) de cada fala `fact`.
+- `GET /v1/events` (SSE): `item_started`, `line_started` e `item_scheduled`, com
+  ping a cada 15 s.
+- `GET /media/{hash}.ogg`: `Cache-Control: public, max-age=31536000, immutable`.
+  O nome é validado (64 hex + `.ogg`), o que impede path traversal.
+- `GET /healthz`.
+
+### Homologação (`compose.staging.yaml`)
+- Um perfil dentro do `compose.yaml` não muda o nome do projeto. Por isso a
+  homologação é um arquivo separado com `name: tvtl-staging`, rede
+  `tvtl_staging_net`, volumes `tvtl_staging_pgdata` e `tvtl_staging_media`,
+  Postgres, Kokoro e lipsync próprios, e `CLOCK_OFFSET=${STAGING_CLOCK_OFFSET:-+2h}`.
+  Comandos: `make staging-up`, `staging-logs` e `staging-down`.
+- `CLOCK_OFFSET` desloca o relógio do app inteiro (geração, orçamento, linha do
+  tempo e API). O `created_at` dos segmentos passou a ser gravado com o relógio do
+  app, para a janela de reprise funcionar com o deslocamento.
+- Um teste (`internal/deploy`) garante que o arquivo de homologação não cita o
+  volume nem a rede do projeto principal, não publica porta e aponta o
+  `DATABASE_URL` para o banco próprio.
+
+## Parte D: render
+
+- `tvtl render --from now|-15m|RFC3339 --minutes 15 --out out/` (`make render`).
+  Se a janela passa do que já está agendado, ele agenda até o fim dela antes
+  (sempre no fim da fila). O PCM é montado com cada fala no milissegundo exato do
+  seu deslocamento e silêncio nas pausas e nos buracos, o que torna o MP3 uma
+  reprodução fiel da linha do tempo. Saem `out/tvtl-<data>.mp3` e
+  `out/legendas.srt` ("ORLANDO: texto"), alinhado pelos mesmos deslocamentos.
+
+## Prova de ponta a ponta (06/10/2026)
+
+- **`tvtl run` + `tvtl serve`, 30 min** (01:39 a 02:09 UTC, depois de 9,5 min de
+  voz dos segmentos pendentes): buffer amostrado a cada 15 s direto no banco (119
+  amostras), **mínimo de 622 s**, nunca abaixo de 600 s; o agendador registrou
+  mínimo de 10 min 30 s. **0 buracos de silêncio não planejados.** Foram ao ar 12
+  estreias (18,7 min) e 160 vinhetas (11,4 min). Nenhuma reprise: a linha do tempo
+  nasceu limpa e a reprise exige exibição anterior com ≥ 60 min de distância. Na
+  primeira hora de operação, a falta de segmento novo só pode ser coberta com
+  vinheta.
+- A primeira tentativa da prova encontrou dois defeitos, já corrigidos: o volume
+  `tvtl_media` criado antes do ajuste de dono na imagem (o `make up` agora corrige
+  o dono) e o glossário expirando termos por falha de rede do INMET (agora falha
+  transitória mantém o termo).
+- **Render:** `make render FROM=-25m MIN=15` gerou MP3 de 15:00, com volume médio
+  de −24,6 dB, pico de −1,1 dB, nenhum silêncio ≥ 3 s e 146 legendas alinhadas.
+- **Homologação:** `tvtl-staging` subiu com o relógio exatamente +2 h e banco
+  próprio (0 segmentos). As contagens do banco principal (segmentos, linha do
+  tempo, chamadas de LLM) ficaram idênticas antes e depois.
+- **`make up && make test` do zero:** imagens do projeto e volumes de cache do Go
+  removidos, 15 pacotes verdes em 2 min 26 s. O cache do BuildKit é compartilhado
+  com os outros projetos do host e não foi apagado (seria um prune global).
+- **Vizinhos:** os 19 containers de outros projetos ficaram com o mesmo ID,
+  `StartedAt` e `RestartCount` do início ao fim do Sprint 2.
+
+### Custo de voz
+- **Por segmento:** ~1.400 caracteres falados e ~87 s de áudio. Com Kokoro, US$ 0.
+  Só como referência, se fosse nuvem: Azure Neural US$ 0,021, Google Neural2
+  US$ 0,022, ElevenLabs Flash US$ 0,056.
+- **Por dia:** a grade atual (notícias a cada 20 min, economia e humor a cada 30)
+  dá 7 segmentos novos por hora. 24/7: 168 segmentos e ~235 mil caracteres
+  (~7 M/mês). Horário nobre (7h–23h): 112 segmentos e ~157 mil caracteres. Com
+  Kokoro, **US$ 0/dia** nos dois cenários. Na nuvem seriam US$ 3,5–9,4/dia (24/7)
+  ou US$ 2,4–6,3/dia (horário nobre).
+- **Total projetado (LLM + TTS), medido nesta rodada:** 24/7 **US$ 9,52/dia**
+  (~US$ 286/mês); horário nobre **US$ 6,35/dia** (~US$ 190/mês). Os dois passam do
+  `MAX_DAILY_USD` padrão de US$ 5: com a grade atual, a geração para antes do fim
+  do dia. É preciso subir o teto, espaçar a grade ou usar a reprise sem audiência.

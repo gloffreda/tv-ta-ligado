@@ -1,4 +1,4 @@
-# TV Tá Ligado — pipeline de texto checado (Sprint 1)
+# TV Tá Ligado: texto checado, voz e linha do tempo (Sprints 1 e 2)
 
 Canal de notícias 24/7 apresentado por dois avatares de IA (Orlando Pimenta e Duda
 Faísca). Este sprint entrega só o texto: ingerir fontes, montar a pauta, escrever o
@@ -21,7 +21,13 @@ make test                   # testes offline (LLM mockado) + integração em Pos
 make run                    # inicia o loop: ingestão a cada 5 min + blocos da grade
 make logs                   # acompanha o loop
 make show N=5               # últimos 5 segmentos aprovados, com fontes
+make render MIN=15          # out/tvtl-*.mp3 + out/legendas.srt: ouvir o canal
+make debug-up               # API em http://127.0.0.1:58080/v1/now (só local)
 ```
+
+Vozes: `audition/index.html` (abra no navegador) traz as candidatas às cegas; o
+mapa está em `audition/key.md`. Para escolher, edite `voice:` em
+`config/personas/<avatar>.yaml`.
 
 Ao final de cada execução (`ingest`, `write`, `check`, `generate`, `rundown`, `run`) o
 `tvtl` grava um relatório em Markdown em `output/` (na raiz do projeto, fora do git):
@@ -39,6 +45,10 @@ Outros alvos e subcomandos:
 | `make down` | derruba só o projeto `tvtl` (volumes preservados) |
 | `make clean` | apaga containers **e volumes** do projeto (pede confirmação) |
 | `make migrate` | aplica migrações |
+| `make audition` | regera a audição às cegas das vozes (provedores aprovados) |
+| `make bench` | benchmark dos TTS locais (fator de tempo real) |
+| `make render FROM=-15m MIN=15` | MP3 + legendas.srt da linha do tempo |
+| `make staging-up` / `staging-down` | homologação no futuro (`CLOCK_OFFSET=+2h`), projeto `tvtl-staging` isolado |
 | `make audit` | auditoria adversarial: 60 casos contra o juiz **real** (custa ~US$ 0,07) |
 | `make ingest` | uma rodada de ingestão (sem LLM: título, resumo e, se CC BY, corpo) |
 | `make debug-up` / `make debug-down` | expõe o Postgres em `127.0.0.1:${TVTL_PG_PORT:-55432}` |
@@ -115,6 +125,18 @@ aplicados estão em [DECISIONS.md](DECISIONS.md).
 | `MEMORY_HALF_LIFE_DAYS` | `7` | meia-vida do peso das memórias |
 | `TVTL_TIMEZONE` | `America/Sao_Paulo` | fuso do orçamento e das datas |
 | `HTTP_USER_AGENT` | `tvtl/0.1 (…)` | user-agent da ingestão |
+| `TTS_PROVIDER` | `kokoro` | provedor de voz de produção (melhor local aprovado no benchmark) |
+| `TTS_FALLBACK` | `kokoro,piper` | ordem de fallback (só provedores aprovados e disponíveis) |
+| `TTS_KOKORO_URL` etc. | `http://tts-<nome>:8080` | endereço dos TTS locais |
+| `AZURE_SPEECH_KEY`, `AZURE_SPEECH_REGION`, `GOOGLE_TTS_KEY` ou `GOOGLE_APPLICATION_CREDENTIALS`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `ELEVENLABS_API_KEY` | — | nuvem: cada uma só entra se a chave existir |
+| `TTS_PRICE_<PROVEDOR>_PER_MCHAR` | 15 / 16 / 16 / 40 | US$ por milhão de caracteres (azure/google/polly/elevenlabs) |
+| `LIPSYNC_URL` | `http://lipsync:8080` | serviço de visemas (Rhubarb) |
+| `TVTL_MEDIA_DIR` | `/media` | áudio das falas (volume `tvtl_media`) |
+| `BUFFER_MIN` | `10m` | quanto da linha do tempo fica agendado à frente |
+| `CLOCK_OFFSET` | `0s` | desloca o relógio (homologação: `+2h`) |
+| `TVTL_API_PORT` | `58080` | porta local da API no perfil `debug` (só 127.0.0.1) |
+| `TVTL_KOKORO_CPUS` / `TVTL_KOKORO_MEM` | `2` / `1536m` | limites do TTS Kokoro (também as threads do onnxruntime) |
+| `TVTL_CHATTERBOX_CPUS` / `_MEM`, `TVTL_PIPER_CPUS` / `_MEM`, `TVTL_LIPSYNC_*`, `TVTL_API_*` | ver `compose.yaml` | limites dos demais serviços |
 | `TVTL_OUTPUT_DIR` | `output` (`/app/output` no container) | pasta dos relatórios |
 | `TVTL_UID` / `TVTL_GID` | `1000` | usuário do container `tvtl` (dono dos arquivos em `output/`) |
 | `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | `tvtl` | banco interno |
@@ -143,6 +165,22 @@ Cobertura principal:
   roteiro inválido duas vezes.
 - Fixtures: `testdata/facts.json` (20 fatos fictícios, 1 vencido), artigos fictícios
   e respostas de LLM gravadas.
+
+## Voz e linha do tempo (Sprint 2)
+
+- Voz local, sem custo: **Kokoro-82M** (Apache-2.0), o único provedor local
+  aprovado no benchmark (RTF 0,66 com 2 CPUs). Chatterbox ficou lento demais em
+  CPU e as vozes pt_BR do Piper não têm licença comercial (`LICENSES.md`). Nuvem
+  só com chave.
+- Visemas do áudio final com Rhubarb (serviço `lipsync`), independentes do
+  provedor.
+- `spoken_text` normalizado (reais, %, datas, siglas) com verificação de que os
+  números falados são os checados; o texto checado nunca muda.
+- Uma linha do tempo única (UTC), sempre com ≥ 10 min agendados, itens imutáveis,
+  reprise (6 h, nunca < 60 min) e vinheta. Prova de 30 min: buffer mínimo de
+  622 s e 0 buracos.
+- Custo projetado (LLM + TTS): **US$ 9,52/dia em 24/7** e **US$ 6,35/dia no
+  horário nobre**. TTS custa US$ 0 (local).
 
 ## Custo medido
 
