@@ -44,6 +44,16 @@ func (s *Store) Close() { s.DB.Close() }
 
 // Migrate aplica, em ordem, os arquivos migrations/*.sql ainda não aplicados.
 func (s *Store) Migrate(ctx context.Context) ([]string, error) {
+	// Vários processos (tvtl, api) sobem juntos: um migra de cada vez.
+	conn, err := s.DB.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Release()
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock(74280)`); err != nil {
+		return nil, err
+	}
+	defer conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock(74280)`)
 	if _, err := s.DB.Exec(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`); err != nil {
 		return nil, err
 	}

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"text/tabwriter"
 	"time"
@@ -78,6 +79,8 @@ type app struct {
 	metered *llm.Metered
 	sched   *timeline.Scheduler // só no run (para o relatório)
 	gate    *session.Gate
+	// openingUntil: até quando a abertura da sessão fura a fila (unix ns).
+	openingUntil atomic.Int64
 }
 
 func newApp(ctx context.Context) (*app, error) {

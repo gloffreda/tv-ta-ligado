@@ -22,6 +22,10 @@ type Config struct {
 	PauseItems    time.Duration // pause_between_items_ms (800): respiro no fim de cada item
 	ReplayWindow  time.Duration // 6 h
 	ReplayGap     time.Duration // nunca repetir o mesmo segmento em menos de 60 min
+	// BumperLead: vinheta só é agendada até este tanto à frente (0 = sem limite).
+	// Sem conteúdo pronto, o buffer não enche de vinhetas: o primeiro segmento
+	// que ficar pronto entra logo em seguida.
+	BumperLead time.Duration
 }
 
 // BumperAudio é a vinheta ("Tá ligado? Já voltamos"), sintetizada uma vez.
@@ -111,10 +115,15 @@ func (s *Scheduler) Fill(ctx context.Context, until time.Time) ([]store.Timeline
 		start = now.Truncate(time.Second).Add(time.Second)
 	}
 	var added []store.TimelineItem
+	lazy := false
 	for start.Before(until) {
 		it, err := s.next(ctx, start)
 		if err != nil {
 			return added, err
+		}
+		if it.Kind == "bumper" && s.Cfg.BumperLead > 0 && start.After(now.Add(s.Cfg.BumperLead)) {
+			lazy = true
+			break
 		}
 		id, err := s.Store.InsertTimelineItem(ctx, it)
 		if err != nil {
@@ -132,7 +141,7 @@ func (s *Scheduler) Fill(ctx context.Context, until time.Time) ([]store.Timeline
 	}
 	s.filled = true
 	s.mu.Unlock()
-	if buf < s.Cfg.BufferMin {
+	if buf < s.Cfg.BufferMin && !lazy {
 		s.event("buffer_low", map[string]any{"buffer_s": buf.Seconds(), "min_s": s.Cfg.BufferMin.Seconds()})
 	}
 	return added, nil

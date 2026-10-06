@@ -24,6 +24,7 @@ const (
 	Weather   = "tempo"
 	Market    = "mercado"
 	Headlines = "manchetes"
+	Opening   = "abertura" // uma fala de abertura da sessão (áudio em cache)
 )
 
 var ErrNoData = errors.New("sem dados válidos para o segmento")
@@ -92,6 +93,8 @@ func (b *Builder) Build(ctx context.Context, block string) (Result, error) {
 		lines, fs, err = b.market(ctx, now)
 	case Headlines:
 		lines, fs, err = b.headlines(ctx, now)
+	case Opening:
+		lines = []check.Line{{Speaker: "orlando", Type: check.TypeBanter, Text: fill(b.pick(openingLines), "{s}", Greeting(now.In(b.Loc)))}}
 	default:
 		return Result{}, fmt.Errorf("bloco de dados desconhecido: %q", block)
 	}
@@ -131,7 +134,7 @@ func (b *Builder) save(ctx context.Context, block string, lines []check.Line, fs
 		}
 		ok = append(ok, checked{l, r})
 	}
-	if nFacts == 0 {
+	if nFacts == 0 && block != Opening {
 		_ = b.Store.Event(ctx, "data_segment_failed", map[string]any{"block": block, "dropped": res.Dropped})
 		return res, ErrNoData
 	}

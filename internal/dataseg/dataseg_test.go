@@ -89,7 +89,7 @@ func seed(t *testing.T, st *store.Store) {
 
 func TestTemplatesHaveEightVariants(t *testing.T) {
 	lists := map[string][]string{"weatherOpen": weatherOpen, "weatherCity": weatherCity, "alertIntro": alertIntro, "weatherClose": weatherClose,
-		"marketOpen": marketOpen, "marketLead": marketLead, "headlineLead": headlineLead,
+		"marketOpen": marketOpen, "marketLead": marketLead, "headlineLead": headlineLead, "openingLines": openingLines,
 		"headlinesOpen.orlando": headlinesOpen["orlando"], "headlinesOpen.duda": headlinesOpen["duda"],
 		"headlinesClose.orlando": headlinesClose["orlando"], "headlinesClose.duda": headlinesClose["duda"]}
 	for k, l := range lists {

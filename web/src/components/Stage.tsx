@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { Component, useEffect, useRef, type ReactNode } from "react";
 import type { Player } from "../core/player";
 import { Director } from "../core/director";
 import type { Renderer, RendererOptions } from "../renderers/Renderer";
@@ -15,6 +15,7 @@ export function Stage({ player, kind, rigs }: Props) {
     let r: Renderer | null = null;
     let d: Director | null = null;
     let dead = false;
+    let mounted: Promise<void> = Promise.resolve();
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const opts: RendererOptions = {
       reducedMotion,
@@ -25,19 +26,30 @@ export function Stage({ player, kind, rigs }: Props) {
       const mod = kind === "pixel" ? await import("../renderers/PixelRenderer") : await import("../renderers/VectorRenderer");
       if (dead || !ref.current) return;
       r = kind === "pixel" ? new (mod as typeof import("../renderers/PixelRenderer")).PixelRenderer(opts) : new (mod as typeof import("../renderers/VectorRenderer")).VectorRenderer(opts);
-      await r.mount(ref.current);
-      if (dead) {
-        r.destroy();
-        return;
-      }
+      mounted = r.mount(ref.current);
+      await mounted;
+      if (dead) return;
       d = new Director(player, r);
       d.attach();
     })();
     return () => {
       dead = true;
       d?.detach();
-      r?.destroy();
+      const rr = r;
+      // só destrói depois de montado (o PixiJS quebra se destruído no meio do init)
+      void mounted.then(() => rr?.destroy(), () => rr?.destroy());
     };
   }, [player, kind, rigKey]);
   return <div className="stage" ref={ref} data-stage={kind} />;
+}
+
+// Se o desenho falhar, o resto da página (balões, painéis, som) continua.
+export class StageBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  render() {
+    return this.state.failed ? <div className="stage" data-stage-failed /> : this.props.children;
+  }
 }

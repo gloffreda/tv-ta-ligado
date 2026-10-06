@@ -7,6 +7,7 @@ export const BLOCK_LABEL: Record<string, string> = {
   tempo: "Tempo com Glória Garoa",
   mercado: "Mercado",
   manchetes: "Manchetes",
+  abertura: "Abertura",
 };
 
 export const NAMES: Record<string, string> = { orlando: "ORLANDO", duda: "DUDA", gloria: "GLÓRIA" };

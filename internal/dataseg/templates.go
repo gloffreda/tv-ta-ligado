@@ -6,6 +6,19 @@ package dataseg
 // Falas banter nunca têm números nem nomes fora da allowlist; falas fact
 // começam pelo fato (regra "uma fala, um tipo").
 
+// Abertura da sessão: uma fala do Orlando (com a saudação, 24 áudios no
+// total, que ficam em cache depois da primeira vez).
+var openingLines = []string{
+	"{s}. Está começando o TV Tá Ligado.",
+	"{s}. Você está no TV Tá Ligado.",
+	"{s}. Começa agora o TV Tá Ligado, com tudo checado.",
+	"{s}. O TV Tá Ligado está no ar.",
+	"{s}. Bem-vindo ao TV Tá Ligado.",
+	"{s}. Ligou na hora certa: é o TV Tá Ligado.",
+	"{s}. Aqui é o Orlando, e este é o TV Tá Ligado.",
+	"{s}. Notícia com fonte, aqui no TV Tá Ligado.",
+}
+
 var weatherOpen = []string{
 	"{s}, meus amores. Vamos ao tempo, que hoje ele chegou de gala.",
 	"{s}! Aqui é a Glória Garoa, com a previsão mais elegante do país.",

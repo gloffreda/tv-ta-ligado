@@ -33,7 +33,7 @@ const PRELOAD_ITEMS = 2;
 export class Player {
   clock = new ChannelClock();
   buffer = new TimelineBuffer();
-  audio = new AudioEngine();
+  audio = new AudioEngine(() => this.clock.now());
   private stream: EventStream | null = null;
   private timers: ReturnType<typeof setInterval>[] = [];
   private raf = 0;
@@ -78,7 +78,11 @@ export class Player {
       ["item_started", "item_scheduled", "line_started", "session"],
     );
     this.stream.start();
-    this.timers.push(setInterval(() => void this.refreshTimeline(), 30000));
+    // O túnel rápido (*.trycloudflare.com) não entrega SSE em tempo real: o
+    // player não depende dele. Sessão a cada 5 s e linha do tempo a cada 15 s
+    // garantem o estado mesmo sem eventos.
+    this.timers.push(setInterval(() => void this.refreshTimeline(), 15000));
+    this.timers.push(setInterval(() => void this.refreshSession(), 5000));
     this.timers.push(setInterval(() => void this.refreshSchedule(), 5 * 60000));
     this.timers.push(setInterval(() => void this.resync(), 10 * 60000));
     this.set({ ready: true });
@@ -174,12 +178,17 @@ export class Player {
 function expose(p: Player, f: Frame) {
   const w = window as unknown as { __tvtl?: Record<string, unknown> };
   w.__tvtl = {
+    mouths: w.__tvtl?.mouths ?? {},
     now: f.now,
     offset: p.clock.offset,
     lineKey: f.lineKey,
     speaker: f.speaker,
     mouth: f.mouth,
     text: f.pos.line?.text ?? null,
+    lineStart: f.pos.line ? Date.parse(f.pos.line.starts_at) : null,
+    posMs: f.pos.posMs,
+    audioPos: p.audio.playingPos(),
+    itemKind: f.pos.item?.kind ?? null,
     muted: p.audio.muted,
     drift: p.audio.lastDrift,
     corrections: p.audio.corrections,

@@ -117,7 +117,7 @@ func (s *Store) FreshSegments(ctx context.Context, at time.Time, origin string) 
 // sem exibição nos últimos `gap` antes de `at` e com fatos válidos em `at`.
 func (s *Store) ReplayCandidates(ctx context.Context, at time.Time, window, gap time.Duration) ([]ReadySegment, error) {
 	return s.ready(ctx, `SELECT s.id, s.block, s.created_at FROM segments s WHERE `+voicedApproved+`
-		AND s.created_at >= $2 AND `+factsValidAt+`
+		AND s.created_at >= $2 AND `+factsValidAt+` AND s.block <> 'abertura'
 		AND EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped' AND t.starts_at <= $1)
 		AND NOT EXISTS (SELECT 1 FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped' AND t.starts_at > $3)
 		ORDER BY (SELECT max(starts_at) FROM timeline t WHERE t.segment_id=s.id AND t.status <> 'skipped') NULLS FIRST,

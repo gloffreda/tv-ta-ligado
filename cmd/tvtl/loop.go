@@ -36,7 +36,8 @@ func (a *app) scheduler(v *voice.Voicer) (*timeline.Scheduler, error) {
 	return &timeline.Scheduler{
 		Store: a.store, Now: a.now,
 		Cfg: timeline.Config{BufferMin: a.env.BufferMin, FillMargin: 30 * time.Second, PauseLines: ms(tc.PauseLinesMS), PauseSpeakers: ms(tc.PauseSpeakersMS),
-			PauseItems: ms(tc.PauseItemsMS), ReplayWindow: a.env.ReplayWindow, ReplayGap: tc.ReplayMinGap.Duration},
+			PauseItems: ms(tc.PauseItemsMS), ReplayWindow: a.env.ReplayWindow, ReplayGap: tc.ReplayMinGap.Duration,
+			BumperLead: 15 * time.Second},
 		Blocks: func() []config.Block {
 			if s, err := config.LoadSchedule(a.env.ConfigDir); err == nil {
 				return s.Blocks
@@ -186,14 +187,20 @@ func (a *app) watch(ctx context.Context, ses store.Session, done <-chan error) s
 func (a *app) work(ctx context.Context, in *ingest.Ingester, v *voice.Voicer, sc *timeline.Scheduler, ses *store.Session) error {
 	var wg sync.WaitGroup
 	defer wg.Wait()
+	ds := a.dataBuilder()
+	// Abertura: uma fala só, com áudio quase sempre em cache. É a primeira coisa no ar.
+	if ses != nil {
+		a.opening(ctx, ds, v)
+	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		a.timelineLoop(ctx, sc, ses)
 	}()
 
+	// Dados com os fatos que ainda valem (rápido), depois a ingestão sem LLM.
+	a.dataStock(ctx, ds, v, true)
 	a.ingestOnce(ctx, in)
-	ds := a.dataBuilder()
 	a.dataStock(ctx, ds, v, true)
 	a.voiceBacklog(ctx, v, 3)
 
@@ -327,8 +334,32 @@ func (a *app) dataStock(ctx context.Context, ds *dataseg.Builder, v *voice.Voice
 	}
 }
 
-// preferAt: na janela do tempo da Glória, o bloco "tempo" fura a fila.
+// opening monta e dá voz à abertura da sessão; ela fura a fila no primeiro minuto.
+func (a *app) opening(ctx context.Context, ds *dataseg.Builder, v *voice.Voicer) {
+	personas, err := persona.Load(a.env.ConfigDir)
+	if err != nil {
+		return
+	}
+	t0 := time.Now()
+	res, err := ds.Build(ctx, dataseg.Opening)
+	if err != nil {
+		slog.Warn("abertura", "erro", err)
+		return
+	}
+	if _, err := v.VoiceSegment(ctx, res.SegmentID, personas); err != nil {
+		slog.Warn("abertura: voz", "erro", err)
+		return
+	}
+	a.openingUntil.Store(a.now().Add(time.Minute).UnixNano())
+	slog.Info("abertura pronta", "segmento", res.SegmentID, "duracao", time.Since(t0).Round(10*time.Millisecond))
+}
+
+// preferAt: na abertura da sessão, a abertura; na janela do tempo da Glória,
+// o bloco "tempo" fura a fila.
 func (a *app) preferAt(at time.Time) []string {
+	if at.UnixNano() < a.openingUntil.Load() {
+		return []string{dataseg.Opening}
+	}
 	sched, err := config.LoadSchedule(a.env.ConfigDir)
 	if err != nil {
 		return nil

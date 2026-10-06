@@ -5,7 +5,7 @@ import type { SessionState } from "../core/types";
 // "Ligar a TV": painel na própria página (sem confirm()), com a duração e o
 // teto de gasto. O token NUNCA é guardado (nem localStorage, nem memória além
 // deste pedido): a página pede toda vez.
-export function OffAir({ session, onStarted }: { session: SessionState | null; onStarted: (stopKey: string) => void }) {
+export function OffAir({ session, onStarted }: { session: SessionState | null; onStarted: (stopKey: string) => void | Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [token, setToken] = useState("");
   const [confirm, setConfirm] = useState("");

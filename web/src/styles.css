@@ -61,7 +61,7 @@ aside.fontes { flex: 1 1 300px; min-width: 0; background: var(--panel); border: 
 h2.px { margin: 0; font-family: var(--pixel); line-height: 1.6; }
 .note { background: var(--bg); border: 2px solid var(--line); padding: 12px; font-size: 14px; color: var(--muted); }
 ul.srcs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-ul.srcs li { border-left: 4px solid var(--yellow); padding-left: 10px; }
+ul.srcs li { border-left: 4px solid var(--yellow); padding-left: 10px; overflow-wrap: anywhere; }
 ul.srcs .veh { font-family: var(--pixel); font-size: 9px; color: var(--yellow); }
 .guide { overflow-x: auto; border: 2px solid var(--line); background: var(--panel); scroll-behavior: smooth; }
 .guide-in { position: relative; height: 176px; }

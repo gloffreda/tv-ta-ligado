@@ -28,7 +28,7 @@ var severityRank = map[string]int{"grande perigo": 3, "perigo": 2, "perigo poten
 
 func (in *Ingester) alerts(ctx context.Context) (int, error) {
 	a := in.Feeds.Alerts
-	if _, err := in.Store.UpsertSource(ctx, a.SourceName, "alerts", a.URL, "cc-by"); err != nil {
+	if _, err := in.Store.UpsertSource(ctx, a.SourceName, "weather", a.URL, "cc-by"); err != nil {
 		return 0, err
 	}
 	body, err := in.getRetry(ctx, []string{a.URL})

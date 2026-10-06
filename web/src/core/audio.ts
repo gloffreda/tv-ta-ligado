@@ -15,6 +15,9 @@ export class AudioEngine {
   private latency = 0; // atraso de partida observado (ms)
   private lastCheck = 0;
 
+  // now: relógio do canal (para realinhar quando o áudio de fato começa a tocar).
+  constructor(private now: () => number = () => Date.now()) {}
+
   preload(lines: Line[]) {
     for (const l of lines) this.get(l.audio_url);
   }
@@ -35,6 +38,12 @@ export class AudioEngine {
       }
     }
     return el;
+  }
+
+  // Posição do áudio que está tocando (ms), para medição.
+  playingPos(): number | null {
+    const el = this.current?.el;
+    return el && !el.paused ? el.currentTime * 1000 : null;
   }
 
   setMuted(m: boolean) {
@@ -59,16 +68,28 @@ export class AudioEngine {
     if (this.current?.key !== key) {
       this.stop();
       const el = this.get(pos.line.audio_url);
+      const lineStart = now - pos.posMs; // início da fala no relógio do canal
       const start = startPosition(pos.posMs, needsCorrection(this.lastDrift) ? this.latency : 0);
-      try {
-        el.currentTime = start / 1000;
-      } catch {
-        /* metadados ainda não carregados */
-      }
+      const seek = (ms: number) => {
+        try {
+          el.currentTime = Math.max(0, ms) / 1000;
+        } catch {
+          /* sem metadados ainda */
+        }
+      };
+      if (el.readyState >= 1) seek(start);
+      else el.addEventListener("loadedmetadata", () => seek(this.now() - lineStart), { once: true });
       el.muted = false;
+      const cur = { key, el };
       const p = el.play();
-      if (p) p.catch(() => {});
-      this.current = { key, el };
+      // Quando o áudio começa de fato, alinha com o relógio (a partida leva tempo).
+      if (p)
+        p.then(() => {
+          if (this.current !== cur) return;
+          const want = this.now() - lineStart;
+          if (Math.abs(el.currentTime * 1000 - want) > 60) seek(want);
+        }).catch(() => {});
+      this.current = cur;
       this.lastCheck = now;
       return;
     }

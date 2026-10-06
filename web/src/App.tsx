@@ -5,12 +5,19 @@ import { load, save } from "./core/storage";
 import { hhmm, itemLabel, NAMES } from "./core/labels";
 import { sceneFor } from "./core/director";
 import type { Source } from "./core/types";
-import { Stage } from "./components/Stage";
+import { Stage, StageBoundary } from "./components/Stage";
 import { Bubble } from "./components/Bubble";
 import { Guide } from "./components/Guide";
 import { OffAir, StopButton } from "./components/SessionControls";
 
 type View = "pixel" | "vector";
+const hostOf = (u: string) => {
+  try {
+    return new URL(u).hostname.replace(/^www\./, "");
+  } catch {
+    return u;
+  }
+};
 const viewFromPath = (p: string): View => (p.replace(/\/+$/, "") === "/humano" ? "vector" : "pixel");
 
 export function App() {
@@ -107,9 +114,9 @@ export function App() {
 
             <div className="cabinet">
               <div id="tv" ref={tv}>
-                <Stage player={player} kind={view} rigs={rigs} />
+                <StageBoundary><Stage player={player} kind={view} rigs={rigs} /></StageBoundary>
                 {captions && onAir && <Bubble line={snap.line} lineKey={snap.lineKey} scene={scene} />}
-                {!onAir && <OffAir session={session} onStarted={(k) => setStopKey(k)} />}
+                {!onAir && <OffAir session={session} onStarted={(k) => { setStopKey(k); void player.refreshSession(); }} />}
                 {onAir && snap.muted && (
                   <button type="button" className="unmute" onClick={() => player.setMuted(false)} data-act="mute">
                     Ligar o som
@@ -167,7 +174,7 @@ export function App() {
                 {sources.map((s) => (
                   <li key={s.url + s.name}>
                     <div className="veh">{s.name}</div>
-                    <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title || s.url.replace(/^https?:\/\//, "").slice(0, 60)}</a>
+                    <a href={s.url} target="_blank" rel="noopener noreferrer">{s.title || hostOf(s.url)}</a>
                   </li>
                 ))}
               </ul>

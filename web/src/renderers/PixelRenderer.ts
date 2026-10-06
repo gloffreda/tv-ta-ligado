@@ -42,7 +42,8 @@ export class PixelRenderer implements Renderer {
 
   async mount(el: HTMLElement) {
     this.el = el;
-    await this.app.init({ width: W * 4, height: H * 4, antialias: false, background: "#12241F", resolution: 1, autoDensity: false });
+    // Canvas 2D: a cena é só retângulos e texto; mais leve que WebGL (e sem GPU, muito mais).
+    await this.app.init({ width: W * 4, height: H * 4, antialias: false, background: "#12241F", resolution: 1, autoDensity: false, preference: "canvas" });
     const c = this.app.canvas;
     c.style.width = "100%";
     c.style.height = "100%";
@@ -58,6 +59,8 @@ export class PixelRenderer implements Renderer {
     this.ro = new ResizeObserver(() => this.resize());
     this.ro.observe(el);
     this.resize();
+    // pixel art não precisa de 60 quadros: 30 bastam e poupam CPU (celular)
+    this.app.ticker.maxFPS = 30;
     this.app.ticker.add(() => this.tick());
   }
 
